@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import GhosttyKit
+import Sharing
 import SupacodeSettingsShared
 
 private let terminalStateLogger = SupaLogger("Terminal")
@@ -95,10 +96,21 @@ final class GhosttySurfaceBridge {
     progressStaleTimeout: Duration = .seconds(15)
   ) {
     self.clock = clock
-    self.progressThrottleInterval = progressThrottleInterval
-      ?? TerminalEnergyConfiguration.progressThrottleInterval()
+    // When no explicit interval is injected (production), resolve the throttle
+    // from the persisted Low Energy Mode setting (falling back to env overrides
+    // for headless benchmarking). Tests inject an explicit interval and never
+    // touch shared state, so they stay deterministic.
+    self.progressThrottleInterval =
+      progressThrottleInterval ?? Self.resolvedProgressThrottleInterval()
     self.progressIdleInterval = progressIdleInterval
     self.progressStaleTimeout = progressStaleTimeout
+  }
+
+  private static func resolvedProgressThrottleInterval() -> Duration {
+    @Shared(.settingsFile) var settingsFile
+    return TerminalEnergyConfiguration.progressThrottleInterval(
+      lowEnergyModeSetting: settingsFile.global.lowEnergyModeEnabled
+    )
   }
 
   deinit {

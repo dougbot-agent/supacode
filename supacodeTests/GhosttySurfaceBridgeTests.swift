@@ -383,6 +383,33 @@ struct GhosttySurfaceBridgeTests {
     )
   }
 
+  @Test func energyConfigurationLowEnergyModeSettingThrottles() {
+    // The persisted Low Energy Mode setting throttles even with a clean env.
+    #expect(
+      TerminalEnergyConfiguration.progressThrottleMilliseconds(
+        environment: [:],
+        lowEnergyModeSetting: true
+      ) == 250
+    )
+    // Off by default keeps the snappy cadence.
+    #expect(
+      TerminalEnergyConfiguration.progressThrottleMilliseconds(
+        environment: [:],
+        lowEnergyModeSetting: false
+      ) == 50
+    )
+  }
+
+  @Test func energyConfigurationExplicitThrottleOverridesLowEnergySetting() {
+    // An explicit env override wins over the persisted setting for benchmarking.
+    #expect(
+      TerminalEnergyConfiguration.progressThrottleMilliseconds(
+        environment: ["SUPACODE_PROGRESS_THROTTLE_MS": "125"],
+        lowEnergyModeSetting: true
+      ) == 125
+    )
+  }
+
   @Test func energyConfigurationExplicitThrottleOverridesEnergyMode() {
     #expect(
       TerminalEnergyConfiguration.progressThrottleMilliseconds(

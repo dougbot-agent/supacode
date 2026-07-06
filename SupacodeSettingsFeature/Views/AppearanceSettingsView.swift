@@ -88,6 +88,24 @@ public struct AppearanceSettingsView: View {
       } footer: {
         Text("Changes to Analytics require Supacode to restart before they take effect.")
       }
+      Section {
+        Toggle(isOn: $store.lowEnergyModeEnabled) {
+          Text("Low Energy Mode")
+          Text(
+            """
+            Coalesces high-frequency terminal progress and spinner updates to a \
+            slower redraw cadence, cutting CPU/GPU wakeups and battery drain \
+            during focused agent work. Output stays correct; only repeated \
+            progress animations are throttled.
+            """
+          )
+        }
+        .help("Throttles progress/spinner redraws to reduce energy use. Restart terminals to apply.")
+      } header: {
+        Text("Energy")
+      } footer: {
+        Text("Applies to terminals opened after the change.")
+      }
       Section("Advanced") {
         Toggle(isOn: $store.hideSingleTabBar) {
           Text("Hide Tab Bar for Single Tab")

@@ -70,6 +70,12 @@ public nonisolated struct GlobalSettings: Codable, Equatable, Sendable {
   /// When true, remote surfaces wrap their session in zmx on the host when
   /// the host has it installed, so the session survives disconnects.
   public var remoteSessionPersistenceEnabled: Bool
+  /// When true, the terminal coalesces high-frequency progress/spinner updates
+  /// to a slower committed-render cadence to cut CPU/GPU wakeups and battery
+  /// drain during focused agent work. Preserves output correctness; only the
+  /// visual commit rate of repeated progress metadata is throttled. Off by
+  /// default so existing installs keep the snappier 50 ms cadence.
+  public var lowEnergyModeEnabled: Bool
 
   public static let `default` = GlobalSettings(
     appearanceMode: .dark,
@@ -104,7 +110,8 @@ public nonisolated struct GlobalSettings: Codable, Equatable, Sendable {
     autoUpdateAgentIntegrationsEnabled: true,
     confirmQuitMode: .auto,
     terminateSessionsOnQuit: false,
-    remoteSessionPersistenceEnabled: true
+    remoteSessionPersistenceEnabled: true,
+    lowEnergyModeEnabled: false
   )
 
   public init(
@@ -140,7 +147,8 @@ public nonisolated struct GlobalSettings: Codable, Equatable, Sendable {
     autoUpdateAgentIntegrationsEnabled: Bool = true,
     confirmQuitMode: ConfirmQuitMode = .auto,
     terminateSessionsOnQuit: Bool = false,
-    remoteSessionPersistenceEnabled: Bool = true
+    remoteSessionPersistenceEnabled: Bool = true,
+    lowEnergyModeEnabled: Bool = false
   ) {
     self.appearanceMode = appearanceMode
     self.defaultEditorID = defaultEditorID
@@ -175,6 +183,7 @@ public nonisolated struct GlobalSettings: Codable, Equatable, Sendable {
     self.confirmQuitMode = confirmQuitMode
     self.terminateSessionsOnQuit = terminateSessionsOnQuit
     self.remoteSessionPersistenceEnabled = remoteSessionPersistenceEnabled
+    self.lowEnergyModeEnabled = lowEnergyModeEnabled
   }
 
   /// Keys for reading renamed settings fields that no longer
@@ -337,5 +346,8 @@ public nonisolated struct GlobalSettings: Codable, Equatable, Sendable {
     remoteSessionPersistenceEnabled =
       try container.decodeIfPresent(Bool.self, forKey: .remoteSessionPersistenceEnabled)
       ?? Self.default.remoteSessionPersistenceEnabled
+    lowEnergyModeEnabled =
+      try container.decodeIfPresent(Bool.self, forKey: .lowEnergyModeEnabled)
+      ?? Self.default.lowEnergyModeEnabled
   }
 }

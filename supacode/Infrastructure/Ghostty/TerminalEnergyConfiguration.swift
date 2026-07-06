@@ -20,19 +20,26 @@ nonisolated enum TerminalEnergyConfiguration {
   }
 
   static func progressThrottleInterval(
-    environment: [String: String] = ProcessInfo.processInfo.environment
+    environment: [String: String] = ProcessInfo.processInfo.environment,
+    lowEnergyModeSetting: Bool = false
   ) -> Duration {
-    let milliseconds = progressThrottleMilliseconds(environment: environment)
+    let milliseconds = progressThrottleMilliseconds(
+      environment: environment,
+      lowEnergyModeSetting: lowEnergyModeSetting
+    )
     return .milliseconds(milliseconds)
   }
 
   static func progressThrottleMilliseconds(
-    environment: [String: String] = ProcessInfo.processInfo.environment
+    environment: [String: String] = ProcessInfo.processInfo.environment,
+    lowEnergyModeSetting: Bool = false
   ) -> Int {
     if let override = positiveInt("SUPACODE_PROGRESS_THROTTLE_MS", environment: environment) {
       return override
     }
-    if isEnabled("SUPACODE_ENERGY_MODE", environment: environment) {
+    // Either the persisted user setting or the env override enables energy mode.
+    // The env var stays for headless benchmarking; the setting is the shipping UI.
+    if lowEnergyModeSetting || isEnabled("SUPACODE_ENERGY_MODE", environment: environment) {
       return energyModeProgressThrottleMs
     }
     return defaultProgressThrottleMs

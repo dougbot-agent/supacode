@@ -10,6 +10,19 @@ Implemented changes are intentionally reversible and environment-gated:
 - `SUPACODE_ENERGY_MODE=1` raises Supacode's existing OSC-9 progress coalescing cadence from 50 ms to 250 ms.
 - `SUPACODE_PROGRESS_THROTTLE_MS=<positive integer>` explicitly sets the OSC-9 progress coalescing cadence and overrides energy mode.
 
+### Shipping UI: Low Energy Mode switch
+
+The energy optimization is now exposed as a user-facing setting, not just an env
+flag. **Settings → General → Energy → "Low Energy Mode"** persists
+`GlobalSettings.lowEnergyModeEnabled` (opt-in, default off) to the settings file.
+When on, new terminal surfaces resolve the progress throttle to the 250 ms
+energy cadence via `GhosttySurfaceBridge` reading `@Shared(.settingsFile)`.
+Precedence (highest first): `SUPACODE_PROGRESS_THROTTLE_MS` env override →
+`SUPACODE_ENERGY_MODE` env flag or the persisted Low Energy Mode setting →
+default 50 ms. The env vars remain for headless benchmarking; the setting is the
+shipping control. The setting applies to terminals opened after the change and
+never alters model/agent behavior or drops terminal output.
+
 The optimization does **not** change model/agent execution and does **not** hide or drop terminal output. It only reduces how often repeated progress metadata updates are applied to Supacode's observable tab/progress state. REMOVE still clears immediately.
 
 ## Pipeline findings
