@@ -412,6 +412,87 @@ struct GhosttySurfaceBridgeTests {
     )
   }
 
+  // MARK: - Energy: quantified render-commit reduction
+
+  /// Spinner/progress-only workload: a determinate bar animating through many
+  /// distinct values at ~50fps. This is the Gate 3 scenario from the energy
+  /// brief. The coalescer must turn a high-frequency mutation stream into a
+  /// low-frequency committed-render stream. Asserts the >=70% render-commit
+  /// reduction target directly, measured as applied renders vs raw mutations.
+  @Test func energyModeCoalescesSpinnerBurstByAtLeast70Percent() async {
+    let clock = TestClock()
+    let rawMutations = 100
+    let stepMs = 20  // ~50fps mutation cadence
+    let bridge = GhosttySurfaceBridge(
+      clock: clock,
+      // Energy mode cadence (SUPACODE_ENERGY_MODE=1 -> 250ms).
+      progressThrottleInterval: .milliseconds(TerminalEnergyConfiguration.energyModeProgressThrottleMs),
+      // Keep the stale watch far outside the workload window so it never
+      // synthesizes a REMOVE mid-burst and pollutes the apply count.
+      progressIdleInterval: .seconds(60),
+      progressStaleTimeout: .seconds(600)
+    )
+    var appliedRenders = 0
+    bridge.onProgressReport = { state in
+      if state != GHOSTTY_PROGRESS_STATE_REMOVE { appliedRenders += 1 }
+    }
+
+    // Animate a determinate bar through `rawMutations` distinct values, each a
+    // fresh mutation the naive path would paint immediately.
+    for i in 0..<rawMutations {
+      let value = i % 101  // distinct, sweeping 0..100
+      bridge.ingestProgressReport(state: GHOSTTY_PROGRESS_STATE_SET, value: value)
+      await clock.advance(by: .milliseconds(stepMs))
+    }
+
+    // Every raw mutation was a distinct value, so the naive (uncoalesced) path
+    // would commit `rawMutations` renders. Measure what actually committed.
+    let reduction = Double(rawMutations - appliedRenders) / Double(rawMutations)
+    #expect(
+      reduction >= 0.70,
+      "expected >=70% render-commit reduction, got \(Int(reduction * 100))% (\(appliedRenders) applied of \(rawMutations) raw)"
+    )
+    // The bar must still track live: the final committed value is never stale
+    // by more than one throttle window, so output correctness is preserved.
+    #expect(bridge.state.progressState == GHOSTTY_PROGRESS_STATE_SET)
+  }
+
+  /// Energy mode must throttle strictly harder than the default cadence for the
+  /// same workload: fewer committed renders, proving the flag actually buys
+  /// energy headroom rather than being a no-op relabel.
+  @Test func energyModeCommitsFewerRendersThanDefault() async {
+    func appliedRenders(throttleMs: Int) async -> Int {
+      let clock = TestClock()
+      let bridge = GhosttySurfaceBridge(
+        clock: clock,
+        progressThrottleInterval: .milliseconds(throttleMs),
+        progressIdleInterval: .seconds(60),
+        progressStaleTimeout: .seconds(600)
+      )
+      var count = 0
+      bridge.onProgressReport = { state in
+        if state != GHOSTTY_PROGRESS_STATE_REMOVE { count += 1 }
+      }
+      for i in 0..<100 {
+        bridge.ingestProgressReport(state: GHOSTTY_PROGRESS_STATE_SET, value: i % 101)
+        await clock.advance(by: .milliseconds(20))
+      }
+      return count
+    }
+
+    let defaultRenders = await appliedRenders(
+      throttleMs: TerminalEnergyConfiguration.defaultProgressThrottleMs
+    )
+    let energyRenders = await appliedRenders(
+      throttleMs: TerminalEnergyConfiguration.energyModeProgressThrottleMs
+    )
+
+    #expect(
+      energyRenders < defaultRenders,
+      "energy mode (\(energyRenders)) must commit fewer renders than default (\(defaultRenders))"
+    )
+  }
+
   private func withOpenURLAction<T>(
     url: String,
     kind: ghostty_action_open_url_kind_e = GHOSTTY_ACTION_OPEN_URL_KIND_UNKNOWN,

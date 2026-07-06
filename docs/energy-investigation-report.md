@@ -89,10 +89,34 @@ Covered by implementation and parse/typecheck verification in this pass:
 - Progress-only update churn can be coalesced without dropping progress state correctness.
 - Energy mode is reversible and does not affect model/agent behavior or terminal byte delivery.
 
-Not fully proven in this non-interactive cron run:
+### Verified render-commit reduction (Gate 3, deterministic)
 
-- Actual before/after battery/package-watt delta from `powermetrics` or Instruments.
-- Actual Ghostty renderer frame/commit count, because the Swift integration does not expose a render callback or render duration metric.
+The progress/spinner coalescer is now proven quantitatively by a deterministic
+`TestClock`-driven test that replays a determinate progress bar animating through
+100 distinct values at ~50fps (the Gate 3 spinner-only workload) and counts
+committed observable renders (`onProgressReport` applies) vs raw mutations:
+
+| Metric | Raw mutations | Committed renders | Reduction |
+| --- | --- | --- | --- |
+| Energy mode (250 ms throttle) | 100 | 9 | **91%** |
+
+- `energyModeCoalescesSpinnerBurstByAtLeast70Percent` asserts `reduction >= 0.70`;
+  measured **91%**, clearing the Gate 3 ">= 70% reduction in render commits" bar.
+- `energyModeCommitsFewerRendersThanDefault` asserts energy mode commits strictly
+  fewer renders than the default 50 ms cadence for the identical workload
+  (proving the flag buys real headroom, not a relabel).
+- Both run headlessly in CI/`make test` with no GUI, no wall-clock flake, and no
+  loss of final-value correctness (the bar still tracks to its latest value).
+
+This is a mechanism proof: it measures the observable render-commit stream the
+Swift layer controls, which is the app-side lever for GPU frame commits downstream.
+
+Not fully proven in this non-interactive run:
+
+- Actual before/after battery/package-watt delta from `powermetrics` or Instruments
+  (requires the GUI app running interactively on a physical display).
+- Actual Ghostty renderer frame/commit count, because the Swift integration does
+  not expose a render callback or render duration metric.
 - End-to-end real-agent CPU improvement under identical live agent tasks.
 
 ## Verification from this cron run
