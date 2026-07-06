@@ -90,12 +90,13 @@ final class GhosttySurfaceBridge {
 
   init(
     clock: any Clock<Duration> = ContinuousClock(),
-    progressThrottleInterval: Duration = .milliseconds(50),
+    progressThrottleInterval: Duration? = nil,
     progressIdleInterval: Duration = .seconds(1),
     progressStaleTimeout: Duration = .seconds(15)
   ) {
     self.clock = clock
     self.progressThrottleInterval = progressThrottleInterval
+      ?? TerminalEnergyConfiguration.progressThrottleInterval()
     self.progressIdleInterval = progressIdleInterval
     self.progressStaleTimeout = progressStaleTimeout
   }
@@ -111,6 +112,7 @@ final class GhosttySurfaceBridge {
   }
 
   func handleAction(target: ghostty_target_s, action: ghostty_action_s) -> Bool {
+    TerminalEnergyDiagnostics.shared.recordAction()
     if let handled = handleAppAction(action) { return handled }
     if let handled = handleSplitAction(action) { return handled }
     if handleTitleAndPath(action) { return false }
@@ -127,6 +129,7 @@ final class GhosttySurfaceBridge {
 
   func sendText(_ text: String) {
     guard let surface else { return }
+    TerminalEnergyDiagnostics.shared.recordTerminalInput(bytes: text.lengthOfBytes(using: .utf8))
     text.withCString { ptr in
       ghostty_surface_text(surface, ptr, UInt(text.lengthOfBytes(using: .utf8)))
     }
@@ -350,6 +353,7 @@ final class GhosttySurfaceBridge {
   /// Coalescing entry point for OSC-9 progress. REMOVE clears immediately; a
   /// value identical to what's already shown only refreshes the stale window.
   func ingestProgressReport(state: ghostty_action_progress_report_state_e, value: Int?) {
+    TerminalEnergyDiagnostics.shared.recordProgressReport()
     guard state != GHOSTTY_PROGRESS_STATE_REMOVE else {
       flushProgressRemoval()
       return
@@ -415,6 +419,7 @@ final class GhosttySurfaceBridge {
     appliedProgress = pending
     state.progressState = pending.state
     state.progressValue = pending.value
+    TerminalEnergyDiagnostics.shared.recordProgressApply(state: Self.progressStateName(pending.state))
     onProgressReport?(pending.state)
   }
 
@@ -430,6 +435,7 @@ final class GhosttySurfaceBridge {
     appliedProgress = nil
     state.progressState = nil
     state.progressValue = nil
+    TerminalEnergyDiagnostics.shared.recordProgressApply(state: "remove")
     onProgressReport?(GHOSTTY_PROGRESS_STATE_REMOVE)
   }
 
@@ -624,6 +630,19 @@ final class GhosttySurfaceBridge {
 
     default:
       return false
+    }
+  }
+
+  private static func progressStateName(_ state: ghostty_action_progress_report_state_e) -> String {
+    switch state {
+    case GHOSTTY_PROGRESS_STATE_REMOVE:
+      return "remove"
+    case GHOSTTY_PROGRESS_STATE_SET:
+      return "set"
+    case GHOSTTY_PROGRESS_STATE_INDETERMINATE:
+      return "indeterminate"
+    default:
+      return "unknown"
     }
   }
 

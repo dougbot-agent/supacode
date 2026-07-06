@@ -371,6 +371,47 @@ struct GhosttySurfaceBridgeTests {
     #expect(lastState == GHOSTTY_PROGRESS_STATE_REMOVE)
   }
 
+  @Test func energyConfigurationUsesDefaultProgressThrottle() {
+    #expect(TerminalEnergyConfiguration.progressThrottleMilliseconds(environment: [:]) == 50)
+  }
+
+  @Test func energyConfigurationUsesEnergyModeProgressThrottle() {
+    #expect(
+      TerminalEnergyConfiguration.progressThrottleMilliseconds(
+        environment: ["SUPACODE_ENERGY_MODE": "1"]
+      ) == 250
+    )
+  }
+
+  @Test func energyConfigurationExplicitThrottleOverridesEnergyMode() {
+    #expect(
+      TerminalEnergyConfiguration.progressThrottleMilliseconds(
+        environment: [
+          "SUPACODE_ENERGY_MODE": "1",
+          "SUPACODE_PROGRESS_THROTTLE_MS": "125",
+        ]
+      ) == 125
+    )
+  }
+
+  @Test func energyConfigurationRenderStatsHonorsDebugFlags() {
+    #expect(
+      TerminalEnergyConfiguration.renderStatsEnabled(
+        environment: ["SUPACODE_RENDER_STATS": "true"]
+      )
+    )
+    #expect(
+      TerminalEnergyConfiguration.renderStatsEnabled(
+        environment: ["SUPACODE_ENERGY_DEBUG": "1"]
+      )
+    )
+    #expect(
+      TerminalEnergyConfiguration.renderStatsEnabled(
+        environment: ["SUPACODE_RENDER_STATS": "0"]
+      ) == false
+    )
+  }
+
   private func withOpenURLAction<T>(
     url: String,
     kind: ghostty_action_open_url_kind_e = GHOSTTY_ACTION_OPEN_URL_KIND_UNKNOWN,

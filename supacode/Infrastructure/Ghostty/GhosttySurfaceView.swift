@@ -917,6 +917,7 @@ final class GhosttySurfaceView: NSView, Identifiable {
       return
     }
     lastBackingSize = backingSize
+    TerminalEnergyDiagnostics.shared.recordSizeUpdate()
     let width = UInt32(max(1, Int(backingSize.width.rounded(.down))))
     let height = UInt32(max(1, Int(backingSize.height.rounded(.down))))
     let currentSize = ghostty_surface_size(surface)
@@ -1868,6 +1869,7 @@ extension GhosttySurfaceView: NSServicesMenuRequestor {
     }
     let len = text.utf8CString.count
     guard len > 0 else { return }
+    TerminalEnergyDiagnostics.shared.recordTerminalInput(bytes: text.lengthOfBytes(using: .utf8))
     text.withCString { ptr in
       ghostty_surface_text(surface, ptr, UInt(len - 1))
     }
@@ -1996,6 +1998,7 @@ final class GhosttySurfaceScrollView: NSView {
 
   override func layout() {
     super.layout()
+    TerminalEnergyDiagnostics.shared.recordLayoutPass()
     scrollView.frame = bounds
     surfaceView.frame.size = scrollView.bounds.size
     documentView.frame.size.width = scrollView.bounds.width
@@ -2011,6 +2014,7 @@ final class GhosttySurfaceScrollView: NSView {
 
   func updateScrollbar(total: UInt64, offset: UInt64, length: UInt64) {
     scrollbar = ScrollbarState(total: total, offset: offset, length: length)
+    TerminalEnergyDiagnostics.shared.recordScrollCommit()
     synchronizeScrollView()
   }
 

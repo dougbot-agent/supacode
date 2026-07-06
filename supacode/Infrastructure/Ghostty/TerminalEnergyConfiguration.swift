@@ -1,0 +1,55 @@
+import Foundation
+
+nonisolated enum TerminalEnergyConfiguration {
+  static let defaultProgressThrottleMs = 50
+  static let energyModeProgressThrottleMs = 250
+
+  static func isEnabled(
+    _ name: String,
+    environment: [String: String] = ProcessInfo.processInfo.environment
+  ) -> Bool {
+    guard let value = environment[name]?.trimmingCharacters(in: .whitespacesAndNewlines),
+      !value.isEmpty
+    else { return false }
+    switch value.lowercased() {
+    case "0", "false", "no", "off":
+      return false
+    default:
+      return true
+    }
+  }
+
+  static func progressThrottleInterval(
+    environment: [String: String] = ProcessInfo.processInfo.environment
+  ) -> Duration {
+    let milliseconds = progressThrottleMilliseconds(environment: environment)
+    return .milliseconds(milliseconds)
+  }
+
+  static func progressThrottleMilliseconds(
+    environment: [String: String] = ProcessInfo.processInfo.environment
+  ) -> Int {
+    if let override = positiveInt("SUPACODE_PROGRESS_THROTTLE_MS", environment: environment) {
+      return override
+    }
+    if isEnabled("SUPACODE_ENERGY_MODE", environment: environment) {
+      return energyModeProgressThrottleMs
+    }
+    return defaultProgressThrottleMs
+  }
+
+  static func renderStatsEnabled(
+    environment: [String: String] = ProcessInfo.processInfo.environment
+  ) -> Bool {
+    isEnabled("SUPACODE_RENDER_STATS", environment: environment)
+      || isEnabled("SUPACODE_ENERGY_DEBUG", environment: environment)
+  }
+
+  private static func positiveInt(_ name: String, environment: [String: String]) -> Int? {
+    guard let rawValue = environment[name]?.trimmingCharacters(in: .whitespacesAndNewlines),
+      let value = Int(rawValue),
+      value > 0
+    else { return nil }
+    return value
+  }
+}
