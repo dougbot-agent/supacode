@@ -21,6 +21,7 @@ final class TerminalEnergyDiagnostics {
   private var snapshot = Snapshot()
   private var summaryTask: Task<Void, Never>?
   private var lastSummaryTime = ContinuousClock.now
+  private var configuredProgressThrottleMilliseconds: Int?
 
   private init(
     enabled: Bool = TerminalEnergyConfiguration.renderStatsEnabled()
@@ -73,9 +74,15 @@ final class TerminalEnergyDiagnostics {
     snapshot.layoutPasses += 1
   }
 
+  func recordConfiguredProgressThrottle(milliseconds: Int) {
+    guard enabled else { return }
+    guard configuredProgressThrottleMilliseconds != milliseconds else { return }
+    configuredProgressThrottleMilliseconds = milliseconds
+    logger.info("render_stats: enabled progress_throttle_ms=\(milliseconds)")
+  }
+
   private func startSummaryLoop() {
     guard summaryTask == nil else { return }
-    logger.info("render_stats: enabled progress_throttle_ms=\(TerminalEnergyConfiguration.progressThrottleMilliseconds())")
     summaryTask = Task { @MainActor [weak self] in
       let clock = ContinuousClock()
       while !Task.isCancelled {
@@ -104,5 +111,15 @@ final class TerminalEnergyDiagnostics {
 
   private static func format(_ value: Double) -> String {
     String(format: "%.2f", value)
+  }
+
+  static func progressThrottleMillisecondsForSummary(
+    environment: [String: String] = ProcessInfo.processInfo.environment,
+    lowEnergyModeSetting: Bool
+  ) -> Int {
+    TerminalEnergyConfiguration.progressThrottleMilliseconds(
+      environment: environment,
+      lowEnergyModeSetting: lowEnergyModeSetting
+    )
   }
 }

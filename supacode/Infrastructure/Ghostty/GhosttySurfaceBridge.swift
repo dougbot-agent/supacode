@@ -100,15 +100,22 @@ final class GhosttySurfaceBridge {
     // from the persisted Low Energy Mode setting (falling back to env overrides
     // for headless benchmarking). Tests inject an explicit interval and never
     // touch shared state, so they stay deterministic.
-    self.progressThrottleInterval =
-      progressThrottleInterval ?? Self.resolvedProgressThrottleInterval()
+    if let progressThrottleInterval {
+      self.progressThrottleInterval = progressThrottleInterval
+    } else {
+      let progressThrottleMilliseconds = Self.resolvedProgressThrottleMilliseconds()
+      self.progressThrottleInterval = .milliseconds(progressThrottleMilliseconds)
+      TerminalEnergyDiagnostics.shared.recordConfiguredProgressThrottle(
+        milliseconds: progressThrottleMilliseconds
+      )
+    }
     self.progressIdleInterval = progressIdleInterval
     self.progressStaleTimeout = progressStaleTimeout
   }
 
-  private static func resolvedProgressThrottleInterval() -> Duration {
+  private static func resolvedProgressThrottleMilliseconds() -> Int {
     @Shared(.settingsFile) var settingsFile
-    return TerminalEnergyConfiguration.progressThrottleInterval(
+    return TerminalEnergyConfiguration.progressThrottleMilliseconds(
       lowEnergyModeSetting: settingsFile.global.lowEnergyModeEnabled
     )
   }

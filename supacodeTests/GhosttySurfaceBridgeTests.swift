@@ -439,6 +439,21 @@ struct GhosttySurfaceBridgeTests {
     )
   }
 
+  @Test func energyDiagnosticsSummaryUsesLowEnergyModeSetting() {
+    #expect(
+      TerminalEnergyDiagnostics.progressThrottleMillisecondsForSummary(
+        environment: [:],
+        lowEnergyModeSetting: true
+      ) == TerminalEnergyConfiguration.energyModeProgressThrottleMs
+    )
+    #expect(
+      TerminalEnergyDiagnostics.progressThrottleMillisecondsForSummary(
+        environment: [:],
+        lowEnergyModeSetting: false
+      ) == TerminalEnergyConfiguration.defaultProgressThrottleMs
+    )
+  }
+
   // MARK: - Energy: quantified render-commit reduction
 
   /// Spinner/progress-only workload: a determinate bar animating through many
