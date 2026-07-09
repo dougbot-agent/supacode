@@ -1,0 +1,12 @@
+commit=6ec3ea8c
+machine=Mac17,6
+macos=26.5.1 (25F80)
+repo=/Users/sethwebster/Development/supacode
+app=/Users/sethwebster/Library/Developer/Xcode/DerivedData/supacode-cfeclnaplfuzuecakbwrryychanq/Build/Products/Debug/supacode.app
+cli=/Users/sethwebster/Library/Developer/Xcode/DerivedData/supacode-cfeclnaplfuzuecakbwrryychanq/Build/Products/Debug/supacode.app/Contents/Resources/bin/supacode
+repeat=3
+duration=60
+warmup=10
+sample_interval=1
+modes=baseline,low-energy
+powermetrics=off
