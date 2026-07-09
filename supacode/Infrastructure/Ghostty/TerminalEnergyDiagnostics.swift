@@ -18,15 +18,18 @@ final class TerminalEnergyDiagnostics {
 
   private let logger = SupaLogger("Energy")
   private let enabled: Bool
+  private let statsFileURL: URL?
   private var snapshot = Snapshot()
   private var summaryTask: Task<Void, Never>?
   private var lastSummaryTime = ContinuousClock.now
   private var configuredProgressThrottleMilliseconds: Int?
 
   private init(
-    enabled: Bool = TerminalEnergyConfiguration.renderStatsEnabled()
+    enabled: Bool = TerminalEnergyConfiguration.renderStatsEnabled(),
+    environment: [String: String] = ProcessInfo.processInfo.environment
   ) {
     self.enabled = enabled
+    self.statsFileURL = Self.statsFileURL(environment: environment)
     if enabled {
       startSummaryLoop()
     }
@@ -78,7 +81,7 @@ final class TerminalEnergyDiagnostics {
     guard enabled else { return }
     guard configuredProgressThrottleMilliseconds != milliseconds else { return }
     configuredProgressThrottleMilliseconds = milliseconds
-    logger.info("render_stats: enabled progress_throttle_ms=\(milliseconds)")
+    log("render_stats: enabled progress_throttle_ms=\(milliseconds)")
   }
 
   private func startSummaryLoop() {
@@ -100,9 +103,31 @@ final class TerminalEnergyDiagnostics {
     let current = snapshot
     snapshot = Snapshot()
     lastSummaryTime = now
-    logger.info(
+    log(
       "render_stats: interval_s=\(Self.format(seconds)) actions_per_s=\(Self.rate(current.actions, seconds: seconds)) progress_reports_per_s=\(Self.rate(current.progressReports, seconds: seconds)) progress_applies_per_s=\(Self.rate(current.progressApplies, seconds: seconds)) progress_removals=\(current.progressRemovals) terminal_input_bytes_per_s=\(Self.rate(current.terminalInputBytes, seconds: seconds)) scroll_commits_per_s=\(Self.rate(current.scrollCommits, seconds: seconds)) size_updates_per_s=\(Self.rate(current.sizeUpdates, seconds: seconds)) layout_passes_per_s=\(Self.rate(current.layoutPasses, seconds: seconds))"
     )
+  }
+
+  private func log(_ message: String) {
+    logger.info(message)
+    appendStatsFile(message)
+  }
+
+  private func appendStatsFile(_ message: String) {
+    guard let statsFileURL else { return }
+    let data = Data("[Energy] \(message)\n".utf8)
+    do {
+      if FileManager.default.fileExists(atPath: statsFileURL.path) {
+        let handle = try FileHandle(forWritingTo: statsFileURL)
+        try handle.seekToEnd()
+        try handle.write(contentsOf: data)
+        try handle.close()
+      } else {
+        try data.write(to: statsFileURL, options: .atomic)
+      }
+    } catch {
+      logger.warning("render_stats_file_write_failed: \(error)")
+    }
   }
 
   private static func rate(_ count: Int, seconds: Double) -> String {
@@ -121,5 +146,10 @@ final class TerminalEnergyDiagnostics {
       environment: environment,
       lowEnergyModeSetting: lowEnergyModeSetting
     )
+  }
+
+  static func statsFileURL(environment: [String: String]) -> URL? {
+    guard let path = environment["SUPACODE_RENDER_STATS_FILE"], !path.isEmpty else { return nil }
+    return URL(fileURLWithPath: path)
   }
 }

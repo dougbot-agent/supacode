@@ -454,6 +454,16 @@ struct GhosttySurfaceBridgeTests {
     )
   }
 
+  @Test func energyDiagnosticsStatsFileUsesEnvironmentPath() {
+    let url = TerminalEnergyDiagnostics.statsFileURL(
+      environment: ["SUPACODE_RENDER_STATS_FILE": "/tmp/supacode-energy.log"]
+    )
+
+    #expect(url?.path == "/tmp/supacode-energy.log")
+    #expect(TerminalEnergyDiagnostics.statsFileURL(environment: [:]) == nil)
+    #expect(TerminalEnergyDiagnostics.statsFileURL(environment: ["SUPACODE_RENDER_STATS_FILE": ""]) == nil)
+  }
+
   // MARK: - Energy: quantified render-commit reduction
 
   /// Spinner/progress-only workload: a determinate bar animating through many
