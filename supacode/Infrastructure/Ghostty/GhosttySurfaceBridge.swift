@@ -381,7 +381,13 @@ final class GhosttySurfaceBridge {
     progressReportCount &+= 1
     startProgressStaleWatchIfNeeded()
     let update = ProgressUpdate(state: state, value: value)
-    guard update != appliedProgress else { return }
+    guard update != appliedProgress else {
+      TerminalEnergyDiagnostics.shared.recordCoalescedFrameProxy(reason: "osc9_progress_duplicate")
+      return
+    }
+    if pendingProgress != nil {
+      TerminalEnergyDiagnostics.shared.recordCoalescedFrameProxy(reason: "osc9_progress_pending")
+    }
     pendingProgress = update
     scheduleProgressFlush()
   }

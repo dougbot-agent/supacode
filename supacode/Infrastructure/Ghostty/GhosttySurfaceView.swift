@@ -512,6 +512,7 @@ final class GhosttySurfaceView: NSView, Identifiable {
     guard surface != nil else { return }
     guard self.focused != focused else { return }
     self.focused = focused
+    TerminalEnergyDiagnostics.shared.recordFocusState(focused)
     if focused {
       bridge.state.bellCount = 0
     }
@@ -1058,6 +1059,7 @@ final class GhosttySurfaceView: NSView, Identifiable {
       return
     }
     lastOcclusion = visible
+    TerminalEnergyDiagnostics.shared.recordOcclusionState(visible: visible)
     ghostty_surface_set_occlusion(surface, visible)
   }
 

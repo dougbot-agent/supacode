@@ -7,6 +7,9 @@ final class TerminalEnergyDiagnostics {
 
   private struct Snapshot {
     var actions = 0
+    var presentationRequests = 0
+    var committedFrameProxies = 0
+    var coalescedFrameProxies = 0
     var progressReports = 0
     var progressApplies = 0
     var progressRemovals = 0
@@ -23,6 +26,10 @@ final class TerminalEnergyDiagnostics {
   private var summaryTask: Task<Void, Never>?
   private var lastSummaryTime = ContinuousClock.now
   private var configuredProgressThrottleMilliseconds: Int?
+  private var workloadName: String
+  private var workloadState: String
+  private var focusState = "unknown"
+  private var occlusionState = "unknown"
 
   private init(
     enabled: Bool = TerminalEnergyConfiguration.renderStatsEnabled(),
@@ -30,6 +37,8 @@ final class TerminalEnergyDiagnostics {
   ) {
     self.enabled = enabled
     self.statsFileURL = Self.statsFileURL(environment: environment)
+    self.workloadName = Self.metadataValue("SUPACODE_ENERGY_WORKLOAD", environment: environment)
+    self.workloadState = Self.metadataValue("SUPACODE_ENERGY_STATE", environment: environment)
     if enabled {
       startSummaryLoop()
     }
@@ -44,14 +53,41 @@ final class TerminalEnergyDiagnostics {
     snapshot.actions += 1
   }
 
+  func recordPresentationRequest(reason: String) {
+    guard enabled else { return }
+    snapshot.presentationRequests += 1
+  }
+
+  func recordCommittedFrameProxy(reason: String) {
+    guard enabled else { return }
+    snapshot.committedFrameProxies += 1
+  }
+
+  func recordCoalescedFrameProxy(reason: String) {
+    guard enabled else { return }
+    snapshot.coalescedFrameProxies += 1
+  }
+
+  func recordFocusState(_ focused: Bool) {
+    guard enabled else { return }
+    focusState = focused ? "focused" : "unfocused"
+  }
+
+  func recordOcclusionState(visible: Bool) {
+    guard enabled else { return }
+    occlusionState = visible ? "visible" : "occluded"
+  }
+
   func recordProgressReport() {
     guard enabled else { return }
     snapshot.progressReports += 1
+    recordPresentationRequest(reason: "osc9_progress")
   }
 
   func recordProgressApply(state: String) {
     guard enabled else { return }
     snapshot.progressApplies += 1
+    recordCommittedFrameProxy(reason: "osc9_progress")
     if state == "remove" {
       snapshot.progressRemovals += 1
     }
@@ -65,16 +101,22 @@ final class TerminalEnergyDiagnostics {
   func recordScrollCommit() {
     guard enabled else { return }
     snapshot.scrollCommits += 1
+    recordPresentationRequest(reason: "scroll")
+    recordCommittedFrameProxy(reason: "scroll")
   }
 
   func recordSizeUpdate() {
     guard enabled else { return }
     snapshot.sizeUpdates += 1
+    recordPresentationRequest(reason: "size")
+    recordCommittedFrameProxy(reason: "size")
   }
 
   func recordLayoutPass() {
     guard enabled else { return }
     snapshot.layoutPasses += 1
+    recordPresentationRequest(reason: "layout")
+    recordCommittedFrameProxy(reason: "layout")
   }
 
   func recordConfiguredProgressThrottle(milliseconds: Int) {
@@ -103,9 +145,24 @@ final class TerminalEnergyDiagnostics {
     let current = snapshot
     snapshot = Snapshot()
     lastSummaryTime = now
-    log(
-      "render_stats: interval_s=\(Self.format(seconds)) actions_per_s=\(Self.rate(current.actions, seconds: seconds)) progress_reports_per_s=\(Self.rate(current.progressReports, seconds: seconds)) progress_applies_per_s=\(Self.rate(current.progressApplies, seconds: seconds)) progress_removals=\(current.progressRemovals) terminal_input_bytes_per_s=\(Self.rate(current.terminalInputBytes, seconds: seconds)) scroll_commits_per_s=\(Self.rate(current.scrollCommits, seconds: seconds)) size_updates_per_s=\(Self.rate(current.sizeUpdates, seconds: seconds)) layout_passes_per_s=\(Self.rate(current.layoutPasses, seconds: seconds))"
-    )
+    log(Self.summaryLine(
+      seconds: seconds,
+      actions: current.actions,
+      presentationRequests: current.presentationRequests,
+      committedFrameProxies: current.committedFrameProxies,
+      coalescedFrameProxies: current.coalescedFrameProxies,
+      progressReports: current.progressReports,
+      progressApplies: current.progressApplies,
+      progressRemovals: current.progressRemovals,
+      terminalInputBytes: current.terminalInputBytes,
+      scrollCommits: current.scrollCommits,
+      sizeUpdates: current.sizeUpdates,
+      layoutPasses: current.layoutPasses,
+      workloadName: workloadName,
+      workloadState: workloadState,
+      focusState: focusState,
+      occlusionState: occlusionState
+    ))
   }
 
   private func log(_ message: String) {
@@ -134,6 +191,28 @@ final class TerminalEnergyDiagnostics {
     format(Double(count) / seconds)
   }
 
+  static func summaryLine(
+    seconds: Double,
+    actions: Int,
+    presentationRequests: Int,
+    committedFrameProxies: Int,
+    coalescedFrameProxies: Int,
+    progressReports: Int,
+    progressApplies: Int,
+    progressRemovals: Int,
+    terminalInputBytes: Int,
+    scrollCommits: Int,
+    sizeUpdates: Int,
+    layoutPasses: Int,
+    workloadName: String,
+    workloadState: String,
+    focusState: String,
+    occlusionState: String
+  ) -> String {
+    let safeSeconds = max(0.001, seconds)
+    return "render_stats: interval_s=\(format(safeSeconds)) workload=\(workloadName) state=\(workloadState) render_counter_source=appkit_proxy governor_state=none cap_state=none suspend_state=none focus_state=\(focusState) occlusion_state=\(occlusionState) idle_state=unknown presentation_requests_per_s=\(rate(presentationRequests, seconds: safeSeconds)) committed_frame_proxies_per_s=\(rate(committedFrameProxies, seconds: safeSeconds)) coalesced_frame_proxies_per_s=\(rate(coalescedFrameProxies, seconds: safeSeconds)) actions_per_s=\(rate(actions, seconds: safeSeconds)) progress_reports_per_s=\(rate(progressReports, seconds: safeSeconds)) progress_applies_per_s=\(rate(progressApplies, seconds: safeSeconds)) progress_removals=\(progressRemovals) terminal_input_bytes_per_s=\(rate(terminalInputBytes, seconds: safeSeconds)) scroll_commits_per_s=\(rate(scrollCommits, seconds: safeSeconds)) size_updates_per_s=\(rate(sizeUpdates, seconds: safeSeconds)) layout_passes_per_s=\(rate(layoutPasses, seconds: safeSeconds))"
+  }
+
   private static func format(_ value: Double) -> String {
     String(format: "%.2f", value)
   }
@@ -151,5 +230,12 @@ final class TerminalEnergyDiagnostics {
   static func statsFileURL(environment: [String: String]) -> URL? {
     guard let path = environment["SUPACODE_RENDER_STATS_FILE"], !path.isEmpty else { return nil }
     return URL(fileURLWithPath: path)
+  }
+
+  static func metadataValue(_ name: String, environment: [String: String]) -> String {
+    guard let value = environment[name]?.trimmingCharacters(in: .whitespacesAndNewlines),
+      !value.isEmpty
+    else { return "unspecified" }
+    return value
   }
 }

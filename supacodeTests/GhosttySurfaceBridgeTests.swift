@@ -464,6 +464,47 @@ struct GhosttySurfaceBridgeTests {
     #expect(TerminalEnergyDiagnostics.statsFileURL(environment: ["SUPACODE_RENDER_STATS_FILE": ""]) == nil)
   }
 
+  @Test func energyDiagnosticsSummaryIncludesRenderProofFieldsAndMetadata() {
+    let line = TerminalEnergyDiagnostics.summaryLine(
+      seconds: 2,
+      actions: 4,
+      presentationRequests: 10,
+      committedFrameProxies: 3,
+      coalescedFrameProxies: 7,
+      progressReports: 8,
+      progressApplies: 2,
+      progressRemovals: 1,
+      terminalInputBytes: 12,
+      scrollCommits: 1,
+      sizeUpdates: 1,
+      layoutPasses: 1,
+      workloadName: "progress-only",
+      workloadState: "focused-visible",
+      focusState: "focused",
+      occlusionState: "visible"
+    )
+
+    #expect(line.contains("workload=progress-only"))
+    #expect(line.contains("state=focused-visible"))
+    #expect(line.contains("render_counter_source=appkit_proxy"))
+    #expect(line.contains("governor_state=none"))
+    #expect(line.contains("presentation_requests_per_s=5.00"))
+    #expect(line.contains("committed_frame_proxies_per_s=1.50"))
+    #expect(line.contains("coalesced_frame_proxies_per_s=3.50"))
+    #expect(line.contains("focus_state=focused"))
+    #expect(line.contains("occlusion_state=visible"))
+  }
+
+  @Test func energyDiagnosticsMetadataDefaultsWhenUnset() {
+    #expect(TerminalEnergyDiagnostics.metadataValue("SUPACODE_ENERGY_WORKLOAD", environment: [:]) == "unspecified")
+    #expect(
+      TerminalEnergyDiagnostics.metadataValue(
+        "SUPACODE_ENERGY_WORKLOAD",
+        environment: ["SUPACODE_ENERGY_WORKLOAD": "progress-only"]
+      ) == "progress-only"
+    )
+  }
+
   // MARK: - Energy: quantified render-commit reduction
 
   /// Spinner/progress-only workload: a determinate bar animating through many
