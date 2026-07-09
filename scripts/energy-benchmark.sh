@@ -16,6 +16,9 @@ warmup_seconds=10
 sample_interval=1
 modes="baseline,low-energy"
 powermetrics_mode="auto"
+workload_name="mixed"
+workload_state="focused-visible"
+render_stats_mode="on"
 use_persisted_setting=false
 dry_run=false
 timeout_seconds=20
@@ -55,7 +58,10 @@ Options:
   --warmup SECONDS                 Warmup before injection. Defaults to 10
   --sample-interval SECONDS        top/powermetrics sample interval. Defaults to 1
   --modes LIST                     Comma-separated modes. Defaults to baseline,low-energy
+  --workload NAME                   Workload variant: mixed, progress-only, spinner-status, stream-only
+  --state NAME                      Benchmark state metadata. Defaults to focused-visible
   --powermetrics auto|off|on       Defaults to auto; auto skips without prompting if unavailable
+  --render-stats on|off             Defaults to on; off fails because E0 requires counter proof
   --use-persisted-setting          Fail clearly; env-flag path is the safe supported path
   --dry-run                        Print planned actions and exit 0 without requiring app bundle
   --help                           Show this help
@@ -138,6 +144,21 @@ while [ "$#" -gt 0 ]; do
       powermetrics_mode="$2"
       shift 2
       ;;
+    --workload)
+      [ "$#" -ge 2 ] || fail "--workload requires a name"
+      workload_name="$2"
+      shift 2
+      ;;
+    --state)
+      [ "$#" -ge 2 ] || fail "--state requires a name"
+      workload_state="$2"
+      shift 2
+      ;;
+    --render-stats)
+      [ "$#" -ge 2 ] || fail "--render-stats requires on or off"
+      render_stats_mode="$2"
+      shift 2
+      ;;
     --use-persisted-setting)
       use_persisted_setting=true
       shift
@@ -166,6 +187,17 @@ is_positive_integer "${sample_interval}" || fail "--sample-interval must be a po
 case "${powermetrics_mode}" in
   auto | off | on) ;;
   *) fail "--powermetrics must be auto, off, or on" ;;
+esac
+
+case "${workload_name}" in
+  mixed | progress-only | spinner-status | stream-only) ;;
+  *) fail "unsupported workload: ${workload_name}. Supported workloads: mixed, progress-only, spinner-status, stream-only" ;;
+esac
+
+case "${render_stats_mode}" in
+  on) ;;
+  off) fail "--render-stats off cannot produce E0 counter proof; leave render stats enabled" ;;
+  *) fail "--render-stats must be on or off" ;;
 esac
 
 if [ "${use_persisted_setting}" = true ]; then
@@ -208,10 +240,10 @@ fi
 mode_env() {
   case "$1" in
     baseline)
-      printf 'SUPACODE_RENDER_STATS=1'
+      printf 'SUPACODE_RENDER_STATS=1 SUPACODE_ENERGY_WORKLOAD=%s SUPACODE_ENERGY_STATE=%s' "${workload_name}" "${workload_state}"
       ;;
     low-energy)
-      printf 'SUPACODE_RENDER_STATS=1 SUPACODE_ENERGY_MODE=1'
+      printf 'SUPACODE_RENDER_STATS=1 SUPACODE_ENERGY_MODE=1 SUPACODE_ENERGY_WORKLOAD=%s SUPACODE_ENERGY_STATE=%s' "${workload_name}" "${workload_state}"
       ;;
     *)
       fail "unsupported mode: $1"
@@ -222,11 +254,18 @@ mode_env() {
 mode_json_env() {
   case "$1" in
     baseline)
-      printf '"SUPACODE_RENDER_STATS=1"'
+      printf '"SUPACODE_RENDER_STATS=1","SUPACODE_ENERGY_WORKLOAD=%s","SUPACODE_ENERGY_STATE=%s"' "${workload_name}" "${workload_state}"
       ;;
     low-energy)
-      printf '"SUPACODE_RENDER_STATS=1","SUPACODE_ENERGY_MODE=1"'
+      printf '"SUPACODE_RENDER_STATS=1","SUPACODE_ENERGY_MODE=1","SUPACODE_ENERGY_WORKLOAD=%s","SUPACODE_ENERGY_STATE=%s"' "${workload_name}" "${workload_state}"
       ;;
+  esac
+}
+
+workload_uses_progress_reports() {
+  case "${workload_name}" in
+    mixed | progress-only) return 0 ;;
+    *) return 1 ;;
   esac
 }
 
@@ -337,9 +376,13 @@ configure_launch_environment() {
   previous_render_stats_env="$(launchctl getenv SUPACODE_RENDER_STATS 2>/dev/null || true)"
   previous_energy_mode_env="$(launchctl getenv SUPACODE_ENERGY_MODE 2>/dev/null || true)"
   previous_render_stats_file_env="$(launchctl getenv SUPACODE_RENDER_STATS_FILE 2>/dev/null || true)"
+  previous_energy_workload_env="$(launchctl getenv SUPACODE_ENERGY_WORKLOAD 2>/dev/null || true)"
+  previous_energy_state_env="$(launchctl getenv SUPACODE_ENERGY_STATE 2>/dev/null || true)"
   render_stats_file="$(cd "$(dirname "${current_run_dir}/render-stats.log")" && pwd)/$(basename "${current_run_dir}/render-stats.log")"
   launchctl setenv SUPACODE_RENDER_STATS 1
   launchctl setenv SUPACODE_RENDER_STATS_FILE "${render_stats_file}"
+  launchctl setenv SUPACODE_ENERGY_WORKLOAD "${workload_name}"
+  launchctl setenv SUPACODE_ENERGY_STATE "${workload_state}"
   case "${mode}" in
     baseline)
       launchctl unsetenv SUPACODE_ENERGY_MODE
@@ -369,6 +412,16 @@ restore_launch_environment() {
     launchctl setenv SUPACODE_RENDER_STATS_FILE "${previous_render_stats_file_env}"
   else
     launchctl unsetenv SUPACODE_RENDER_STATS_FILE
+  fi
+  if [ -n "${previous_energy_workload_env:-}" ]; then
+    launchctl setenv SUPACODE_ENERGY_WORKLOAD "${previous_energy_workload_env}"
+  else
+    launchctl unsetenv SUPACODE_ENERGY_WORKLOAD
+  fi
+  if [ -n "${previous_energy_state_env:-}" ]; then
+    launchctl setenv SUPACODE_ENERGY_STATE "${previous_energy_state_env}"
+  else
+    launchctl unsetenv SUPACODE_ENERGY_STATE
   fi
   launch_env_active=false
 }
@@ -615,6 +668,26 @@ metric_activity_seen() {
   ' "${render_log_path}" "${app_log_path}" 2>/dev/null
 }
 
+render_stats_proof_seen() {
+  render_log_path="$1"
+  app_log_path="$2"
+  awk '
+    /render_stats:/ && index($0, "render_counter_source=appkit_proxy") > 0 && index($0, "workload=") > 0 && index($0, "state=") > 0 {
+      source_seen = 1
+    }
+    /render_stats:/ && index($0, "presentation_requests_per_s=") > 0 {
+      requests_seen = 1
+    }
+    /render_stats:/ && index($0, "committed_frame_proxies_per_s=") > 0 {
+      commits_seen = 1
+    }
+    /render_stats:/ && index($0, "coalesced_frame_proxies_per_s=") > 0 {
+      coalesced_seen = 1
+    }
+    END { exit (source_seen && requests_seen && commits_seen && coalesced_seen) ? 0 : 1 }
+  ' "${render_log_path}" "${app_log_path}" 2>/dev/null
+}
+
 run_workload_tab() {
   workload_duration="$1"
   created_tab_id="$(uuidgen)"
@@ -626,7 +699,7 @@ run_workload_tab() {
   wait_for "zmx attached client for ${session_id}" session_has_client
   sleep "${workload_shell_settle_seconds}"
   note "Submitting workload to tab ${created_tab_id}"
-  "${zmx_path}" run "${session_id}" "${workload_path}" --duration "${workload_duration}" >>"${current_run_dir}/cli-dispatch.log" 2>&1 &
+  "${zmx_path}" run "${session_id}" "${workload_path}" --duration "${workload_duration}" --workload "${workload_name}" >>"${current_run_dir}/cli-dispatch.log" 2>&1 &
 }
 
 close_workload_tab() {
@@ -658,12 +731,14 @@ sample_interval=${sample_interval}
 workload_duration=$((duration_seconds + workload_start_guard_seconds))
 workload_shell_settle=${workload_shell_settle_seconds}
 modes=${modes}
+workload=${workload_name}
+state=${workload_state}
 powermetrics=${powermetrics_mode}
 EOF
 }
 
 dry_run_plan() {
-  workload_command="${workload_path} --duration $((duration_seconds + workload_start_guard_seconds))"
+  workload_command="${workload_path} --duration $((duration_seconds + workload_start_guard_seconds)) --workload ${workload_name}"
   cat <<EOF
 Energy benchmark dry-run plan
 app: ${app_path}
@@ -676,6 +751,8 @@ warmup: ${warmup_seconds}
 sample_interval: ${sample_interval}
 modes: ${modes}
 powermetrics: ${powermetrics_mode}
+workload: ${workload_name}
+state: ${workload_state}
 workload command: ${workload_command}
 summary csv: ${output_dir}/summary.csv
 summary jsonl: ${output_dir}/summary.jsonl
@@ -724,7 +801,7 @@ write_context
 summary_csv="${output_dir}/summary.csv"
 summary_jsonl="${output_dir}/summary.jsonl"
 report_path="${output_dir}/report.md"
-printf 'mode,run,mean_cpu,render_stats_count,powermetrics_collected,run_dir\n' >"${summary_csv}"
+printf 'mode,workload,state,run,mean_cpu,render_stats_count,render_stats_proof,powermetrics_collected,run_dir\n' >"${summary_csv}"
 : >"${summary_jsonl}"
 
 old_ifs="${IFS}"
@@ -750,8 +827,13 @@ for mode in ${modes}; do
 
     workload_duration="$((duration_seconds + workload_start_guard_seconds))"
     run_workload_tab "${workload_duration}"
-    wait_for "OSC 9;4 progress reports from workload" \
-      metric_activity_seen "progress_reports_per_s" "${current_run_dir}/render-stats.log" "${current_run_dir}/app.log"
+    if workload_uses_progress_reports; then
+      wait_for "OSC 9;4 progress reports from workload" \
+        metric_activity_seen "progress_reports_per_s" "${current_run_dir}/render-stats.log" "${current_run_dir}/app.log"
+    else
+      wait_for "render stats proof counters from workload" \
+        render_stats_proof_seen "${current_run_dir}/render-stats.log" "${current_run_dir}/app.log"
+    fi
     start_top_collector "${started_pid}" "${current_run_dir}/top.log" "${current_run_dir}/cpu.csv"
     start_powermetrics_collector "${current_run_dir}/powermetrics.log"
     sleep "${duration_seconds}"
@@ -761,11 +843,16 @@ for mode in ${modes}; do
     finish_render_stats_collector
     finish_powermetrics_collector
 
-    if ! metric_activity_seen "progress_reports_per_s" "${current_run_dir}/render-stats.log" "${current_run_dir}/app.log"; then
-      fail "OSC 9;4 progress reports were not observed in ${current_run_dir}/render-stats.log"
+    if ! render_stats_proof_seen "${current_run_dir}/render-stats.log" "${current_run_dir}/app.log"; then
+      fail "render stats proof counters were not observed in ${current_run_dir}/render-stats.log"
     fi
-    if ! metric_activity_seen "progress_applies_per_s" "${current_run_dir}/render-stats.log" "${current_run_dir}/app.log"; then
-      fail "progress applies were not observed in ${current_run_dir}/render-stats.log"
+    if workload_uses_progress_reports; then
+      if ! metric_activity_seen "progress_reports_per_s" "${current_run_dir}/render-stats.log" "${current_run_dir}/app.log"; then
+        fail "OSC 9;4 progress reports were not observed in ${current_run_dir}/render-stats.log"
+      fi
+      if ! metric_activity_seen "progress_applies_per_s" "${current_run_dir}/render-stats.log" "${current_run_dir}/app.log"; then
+        fail "progress applies were not observed in ${current_run_dir}/render-stats.log"
+      fi
     fi
 
     mean_cpu="$(mean_cpu_from_csv "${current_run_dir}/cpu.csv")"
@@ -775,9 +862,10 @@ for mode in ${modes}; do
       powermetrics_collected=true
     fi
 
-    printf '%s,%s,%s,%s,%s,%s\n' "${mode}" "${run_index}" "${mean_cpu}" "${render_count}" "${powermetrics_collected}" "${current_run_dir}" >>"${summary_csv}"
-    printf '{"mode":"%s","run":%s,"mean_cpu":%s,"render_stats_count":%s,"powermetrics_collected":%s,"run_dir":"%s","env":[%s]}\n' \
-      "${mode}" "${run_index}" "${mean_cpu:-null}" "${render_count}" "${powermetrics_collected}" "${current_run_dir}" "$(mode_json_env "${mode}")" >>"${summary_jsonl}"
+    render_stats_proof=true
+    printf '%s,%s,%s,%s,%s,%s,%s,%s,%s\n' "${mode}" "${workload_name}" "${workload_state}" "${run_index}" "${mean_cpu}" "${render_count}" "${render_stats_proof}" "${powermetrics_collected}" "${current_run_dir}" >>"${summary_csv}"
+    printf '{"mode":"%s","workload":"%s","state":"%s","run":%s,"mean_cpu":%s,"render_stats_count":%s,"render_stats_proof":%s,"powermetrics_collected":%s,"run_dir":"%s","env":[%s]}\n' \
+      "${mode}" "${workload_name}" "${workload_state}" "${run_index}" "${mean_cpu:-null}" "${render_count}" "${render_stats_proof}" "${powermetrics_collected}" "${current_run_dir}" "$(mode_json_env "${mode}")" >>"${summary_jsonl}"
 
     stop_started_app
     clear_benchmark_socket_file
@@ -787,8 +875,8 @@ for mode in ${modes}; do
 done
 IFS="${old_ifs}"
 
-baseline_mean="$(awk -F, '$1 == "baseline" && $3 != "" { sum += $3; count++ } END { if (count > 0) printf "%.4f", sum / count }' "${summary_csv}")"
-low_energy_mean="$(awk -F, '$1 == "low-energy" && $3 != "" { sum += $3; count++ } END { if (count > 0) printf "%.4f", sum / count }' "${summary_csv}")"
+baseline_mean="$(awk -F, '$1 == "baseline" && $5 != "" { sum += $5; count++ } END { if (count > 0) printf "%.4f", sum / count }' "${summary_csv}")"
+low_energy_mean="$(awk -F, '$1 == "low-energy" && $5 != "" { sum += $5; count++ } END { if (count > 0) printf "%.4f", sum / count }' "${summary_csv}")"
 reduction=""
 target_status="unavailable"
 if [ -n "${baseline_mean}" ] && [ -n "${low_energy_mean}" ]; then
@@ -804,6 +892,8 @@ cat >"${report_path}" <<EOF
 # Supacode Energy Benchmark
 
 - Output: ${output_dir}
+- Workload: ${workload_name}
+- State: ${workload_state}
 - Baseline mean CPU: ${baseline_mean:-unavailable}
 - Low-energy mean CPU: ${low_energy_mean:-unavailable}
 - Mean CPU reduction: ${reduction:-unavailable}%
