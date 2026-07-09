@@ -66,6 +66,15 @@ draw_progress() {
   printf '\rphase=render progress=[%s] %3d%%' "${bar}" "${percent}"
 }
 
+emit_progress_report() {
+  percent="$1"
+  printf '\033]9;4;1;%s\007' "${percent}"
+}
+
+clear_progress_report() {
+  printf '\033]9;4;0;\007'
+}
+
 printf 'WORKLOAD_START duration=%s\n' "${duration}"
 printf 'WORKLOAD_READY\n'
 
@@ -82,6 +91,7 @@ while [ "$(date +%s)" -lt "${end_epoch}" ]; do
   [ "${percent}" -le 100 ] || percent=100
 
   draw_progress "${percent}"
+  emit_progress_report "${percent}"
   printf ' spinner=%s ' "${frame}"
   printf 'stream token-%04d token-%04d token-%04d token-%04d' \
     "$((tick * 4 + 1))" \
@@ -95,4 +105,6 @@ while [ "$(date +%s)" -lt "${end_epoch}" ]; do
 done
 
 draw_progress 100
+emit_progress_report 100
+clear_progress_report
 printf '\nWORKLOAD_DONE ticks=%s\n' "${tick}"

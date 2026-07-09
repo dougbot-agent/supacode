@@ -6,6 +6,7 @@ repo_root="$(cd "${script_dir}/.." && pwd)"
 
 app_path="${repo_root}/build/supacode/Build/Products/Debug/supacode.app"
 cli_path=""
+zmx_path=""
 app_path_is_default=true
 target_repo="${repo_root}"
 output_dir="${repo_root}/docs/energy-logs/$(date +%Y%m%d-%H%M%S)"
@@ -18,8 +19,11 @@ powermetrics_mode="auto"
 use_persisted_setting=false
 dry_run=false
 timeout_seconds=20
+workload_start_guard_seconds=5
+workload_shell_settle_seconds=1
 
 created_tab_id=""
+session_id=""
 worktree_id=""
 started_pid=""
 benchmark_socket_path=""
@@ -199,6 +203,7 @@ if [ "${dry_run}" = false ] && [ "${app_path_is_default}" = true ] && [ ! -d "${
 fi
 
 [ -n "${cli_path}" ] || cli_path="${app_path}/Contents/Resources/bin/supacode"
+[ -n "${zmx_path}" ] || zmx_path="${app_path}/Contents/Resources/zmx/zmx"
 
 mode_env() {
   case "$1" in
@@ -397,6 +402,34 @@ tab_exists() {
   printf '%s\n' "${output}" | list_ids | grep -F -q "${created_tab_id}"
 }
 
+session_exists() {
+  [ -n "${session_id}" ] || return 1
+  "${zmx_path}" ls 2>/dev/null | grep -F -q "${session_id}"
+}
+
+session_has_client() {
+  [ -n "${session_id}" ] || return 1
+  session_clients="$(
+    "${zmx_path}" ls 2>/dev/null | awk -v session="${session_id}" '
+      index($0, "name=" session) {
+        for (i = 1; i <= NF; i++) {
+          if ($i ~ /^clients=/) {
+            sub(/^clients=/, "", $i)
+            print $i
+            exit
+          }
+        }
+      }
+    '
+  )"
+  case "${session_clients}" in
+    '' | *[!0-9]*)
+      return 1
+      ;;
+  esac
+  [ "${session_clients}" -gt 0 ]
+}
+
 start_app() {
   mode="$1"
   app_log="$2"
@@ -565,13 +598,14 @@ render_stats_count() {
   awk '/render_stats:/ { count++ } END { print count + 0 }' "${render_log_path}" "${app_log_path}" 2>/dev/null || printf '0\n'
 }
 
-terminal_input_activity_seen() {
-  render_log_path="$1"
-  app_log_path="$2"
-  awk '
-    /terminal_input_bytes_per_s=/ {
+metric_activity_seen() {
+  metric_name="$1"
+  render_log_path="$2"
+  app_log_path="$3"
+  awk -v metric="${metric_name}" '
+    index($0, metric "=") > 0 {
       value = $0
-      sub(/^.*terminal_input_bytes_per_s=/, "", value)
+      sub("^.*" metric "=", "", value)
       sub(/ .*$/, "", value)
       if (value + 0 > 0) {
         found = 1
@@ -582,19 +616,17 @@ terminal_input_activity_seen() {
 }
 
 run_workload_tab() {
-  command_text="$1"
+  workload_duration="$1"
   created_tab_id="$(uuidgen)"
+  session_id="supa-$(printf '%s' "${created_tab_id}" | tr '[:upper:]' '[:lower:]')"
   note "Creating tab ${created_tab_id} in worktree ${worktree_id}"
   run_dispatch_allow_timeout "tab new" run_cli tab new --worktree "${worktree_id}" --id "${created_tab_id}" --input $'\n'
   wait_for "created tab ${created_tab_id}" tab_exists
+  wait_for "zmx session ${session_id}" session_exists
+  wait_for "zmx attached client for ${session_id}" session_has_client
+  sleep "${workload_shell_settle_seconds}"
   note "Submitting workload to tab ${created_tab_id}"
-  run_dispatch_allow_timeout \
-    "surface focus input" \
-    run_cli surface focus \
-    --worktree "${worktree_id}" \
-    --tab "${created_tab_id}" \
-    --surface "${created_tab_id}" \
-    --input "${command_text}"
+  "${zmx_path}" run "${session_id}" "${workload_path}" --duration "${workload_duration}" >>"${current_run_dir}/cli-dispatch.log" 2>&1 &
 }
 
 close_workload_tab() {
@@ -602,6 +634,7 @@ close_workload_tab() {
     note "Closing tab ${created_tab_id}"
     run_cli tab close --worktree "${worktree_id}" --tab "${created_tab_id}" >/dev/null 2>&1 || true
     created_tab_id=""
+    session_id=""
   fi
 }
 
@@ -617,17 +650,20 @@ macos=${macos}
 repo=${target_repo}
 app=${app_path}
 cli=${cli_path}
+zmx=${zmx_path}
 repeat=${repeat_count}
 duration=${duration_seconds}
 warmup=${warmup_seconds}
 sample_interval=${sample_interval}
+workload_duration=$((duration_seconds + workload_start_guard_seconds))
+workload_shell_settle=${workload_shell_settle_seconds}
 modes=${modes}
 powermetrics=${powermetrics_mode}
 EOF
 }
 
 dry_run_plan() {
-  workload_command="${workload_path} --duration ${duration_seconds}"
+  workload_command="${workload_path} --duration $((duration_seconds + workload_start_guard_seconds))"
   cat <<EOF
 Energy benchmark dry-run plan
 app: ${app_path}
@@ -662,7 +698,8 @@ mode ${mode} run ${run_index} visibility: require launched dev app window count 
 mode ${mode} run ${run_index} repo open action: ${cli_path} repo open ${target_repo}
 mode ${mode} run ${run_index} worktree target: percent-encoded ${target_repo}/
 mode ${mode} run ${run_index} tab open action: ${cli_path} tab new --worktree <focused-worktree> --id <uuidgen> --input '<newline>'
-mode ${mode} run ${run_index} workload submit action: ${cli_path} surface focus --worktree <focused-worktree> --tab <uuid> --surface <uuid> --input '${workload_command}<newline>'
+mode ${mode} run ${run_index} tab readiness: wait for zmx session, attached client, and ${workload_shell_settle_seconds}s shell settle
+mode ${mode} run ${run_index} workload submit action: ${zmx_path} run <session> ${workload_command}
 mode ${mode} run ${run_index} tab close action: ${cli_path} tab close --worktree <focused-worktree> --tab <uuid>
 mode ${mode} run ${run_index} collectors: ${run_dir}/cpu.csv ${run_dir}/top.log ${run_dir}/render-stats.log ${run_dir}/powermetrics.log
 EOF
@@ -680,6 +717,7 @@ fi
 
 [ -d "${app_path}" ] || fail "missing app bundle at ${app_path}. Run: make build-app"
 [ -x "${cli_path}" ] || fail "missing executable CLI at ${cli_path}. Run: make build-app"
+[ -x "${zmx_path}" ] || fail "missing executable zmx at ${zmx_path}. Run: make build-app"
 [ -x "${workload_path}" ] || fail "missing executable workload at ${workload_path}"
 
 write_context
@@ -708,21 +746,26 @@ for mode in ${modes}; do
     wait_for "target worktree after repo open" capture_target_worktree
     wait_for "launched dev app window to become frontmost" activate_started_app
 
-    start_top_collector "${started_pid}" "${current_run_dir}/top.log" "${current_run_dir}/cpu.csv"
     start_render_stats_collector "${current_run_dir}/render-stats.log"
-    start_powermetrics_collector "${current_run_dir}/powermetrics.log"
 
-    workload_command="${workload_path} --duration ${duration_seconds}"
-    run_workload_tab "${workload_command}"$'\n'
-    sleep "$((duration_seconds + 1))"
+    workload_duration="$((duration_seconds + workload_start_guard_seconds))"
+    run_workload_tab "${workload_duration}"
+    wait_for "OSC 9;4 progress reports from workload" \
+      metric_activity_seen "progress_reports_per_s" "${current_run_dir}/render-stats.log" "${current_run_dir}/app.log"
+    start_top_collector "${started_pid}" "${current_run_dir}/top.log" "${current_run_dir}/cpu.csv"
+    start_powermetrics_collector "${current_run_dir}/powermetrics.log"
+    sleep "${duration_seconds}"
     close_workload_tab
 
     finish_top_collector "${current_run_dir}/top.log" "${current_run_dir}/cpu.csv"
     finish_render_stats_collector
     finish_powermetrics_collector
 
-    if ! terminal_input_activity_seen "${current_run_dir}/render-stats.log" "${current_run_dir}/app.log"; then
-      fail "workload input was not observed in ${current_run_dir}/app.log"
+    if ! metric_activity_seen "progress_reports_per_s" "${current_run_dir}/render-stats.log" "${current_run_dir}/app.log"; then
+      fail "OSC 9;4 progress reports were not observed in ${current_run_dir}/render-stats.log"
+    fi
+    if ! metric_activity_seen "progress_applies_per_s" "${current_run_dir}/render-stats.log" "${current_run_dir}/app.log"; then
+      fail "progress applies were not observed in ${current_run_dir}/render-stats.log"
     fi
 
     mean_cpu="$(mean_cpu_from_csv "${current_run_dir}/cpu.csv")"
