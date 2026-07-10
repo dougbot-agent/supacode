@@ -371,6 +371,29 @@ struct GhosttySurfaceBridgeTests {
     #expect(lastState == GHOSTTY_PROGRESS_STATE_REMOVE)
   }
 
+  @Test func removeCancelsStaleWatchAfterImmediateClear() async {
+    let clock = TestClock()
+    let bridge = GhosttySurfaceBridge(
+      clock: clock,
+      progressThrottleInterval: .milliseconds(50),
+      progressIdleInterval: .milliseconds(50),
+      progressStaleTimeout: .milliseconds(100)
+    )
+    var states: [ghostty_action_progress_report_state_e] = []
+    bridge.onProgressReport = { states.append($0) }
+
+    bridge.ingestProgressReport(state: GHOSTTY_PROGRESS_STATE_SET, value: 42)
+    bridge.ingestProgressReport(state: GHOSTTY_PROGRESS_STATE_REMOVE, value: nil)
+    await clock.advance(by: .milliseconds(200))
+
+    #expect(bridge.state.progressState == nil)
+    #expect(states == [GHOSTTY_PROGRESS_STATE_SET, GHOSTTY_PROGRESS_STATE_REMOVE])
+
+    bridge.ingestProgressReport(state: GHOSTTY_PROGRESS_STATE_SET, value: 7)
+    #expect(bridge.state.progressValue == 7)
+    #expect(states == [GHOSTTY_PROGRESS_STATE_SET, GHOSTTY_PROGRESS_STATE_REMOVE, GHOSTTY_PROGRESS_STATE_SET])
+  }
+
   @Test func energyConfigurationUsesDefaultProgressThrottle() {
     #expect(TerminalEnergyConfiguration.progressThrottleMilliseconds(environment: [:]) == 50)
   }
