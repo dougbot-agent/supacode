@@ -15,3 +15,6 @@
 ## 2026-07-10 Task: E5 focused default cap
 - Choose 33ms for the normal focused cap because it is the conservative integer cadence closest to 30fps and stays weaker than Low Energy's existing 100ms focused cap.
 - Keep E5 in the existing bridge cadence selector instead of adding another scheduler: hidden suspend, unfocused/background cap, idle quiet, focused cap, then base throttle.
+
+## 2026-07-10 Task: E6 OSC-9 progress throttle calibration and retention
+- Retain `defaultProgressThrottleMs=50`, `defaultFocusedFrameCapMs=33`, and `energyModeFocusedFrameCapMs=100` because E6 produced deterministic correctness evidence but no successful numeric focused-visible benchmark rows; changing cadence without a valid counter win would be speculative.

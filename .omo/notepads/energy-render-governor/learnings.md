@@ -38,3 +38,8 @@
 - E5 adds a normal focused bridge cap at `focused_default_frame_cap_ms=33` (`governor_state=focused_default_cap`, `cap_fps=30.30`) while keeping Low Energy at `focused_low_energy_cap` / 100ms and idle quiet at 250ms above both focused caps.
 - `SUPACODE_PROGRESS_THROTTLE_MS` and `SUPACODE_FOCUSED_FRAME_CAP_MS` remain explicit benchmark overrides and report as `focused_custom_cap`; default `progress_throttle_ms` stays 50ms so the focused cap is selected by bridge cadence precedence instead of relabeling the base progress throttle.
 - Prompt-title actions now flush pending bridge work like input, resize, scroll, focus regain, command finish, and bell paths, so prompt-ready UI does not wait behind the focused cap.
+
+## 2026-07-10 Task: E6 OSC-9 progress throttle calibration and retention
+- E6 retained the existing OSC-9 throttle/focused-cap values because deterministic tests found correct coalescing under the composed governors and the focused-visible GUI benchmark remained blocked before sampling, so there was no safe measurable improvement signal to justify calibration.
+- Added TestClock coverage for progress-specific REMOVE across hidden suspend, unfocused cap, idle quiet, focused Low Energy cap, and focused default cap, plus progress updates proving idle quiet cadence outranks focused caps for OSC-9 paths.
+- Required gates passed in order: `scripts/test-energy-benchmark.sh`, `make test` (`2250` tests, `11` known issues), and `make build-app`.
