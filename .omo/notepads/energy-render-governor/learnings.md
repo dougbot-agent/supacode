@@ -43,3 +43,8 @@
 - E6 retained the existing OSC-9 throttle/focused-cap values because deterministic tests found correct coalescing under the composed governors and the focused-visible GUI benchmark remained blocked before sampling, so there was no safe measurable improvement signal to justify calibration.
 - Added TestClock coverage for progress-specific REMOVE across hidden suspend, unfocused cap, idle quiet, focused Low Energy cap, and focused default cap, plus progress updates proving idle quiet cadence outranks focused caps for OSC-9 paths.
 - Required gates passed in order: `scripts/test-energy-benchmark.sh`, `make test` (`2250` tests, `11` known issues), and `make build-app`.
+
+## 2026-07-10 Task: E7 final cumulative benchmark and report
+- E7 required gates passed in order: `scripts/test-energy-benchmark.sh`, `make test` (`2251` tests, `11` known issues), and `make build-app`.
+- Fresh final focused-visible artifact `/var/folders/db/wnztnt0d0zb87jdhxp6t_vc80000gn/T/supacode-energy-e7-final-cumulative-focused-visible-20260710052926` preserves the machine-readable failure contract: `summary.csv` has only the header, `summary.jsonl` is empty, and `report.md` says `Status: failed` with unavailable CPU/proxy metrics.
+- Safe maximum cumulative evidence remains state-specific: E1 background progress-only `80.97%` appkit-proxy reduction, E2 hidden steady intervals near `0.99/0.97 fps`, and E3 spinner `0.00%` appkit-proxy reduction because native Ghostty wakeups bypass Swift proxy counters.

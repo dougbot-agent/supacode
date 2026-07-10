@@ -33,3 +33,8 @@
 ## 2026-07-10 Task: E6 OSC-9 progress throttle calibration and retention
 - Fresh E6 focused-visible progress-only attempt `/var/folders/db/wnztnt0d0zb87jdhxp6t_vc80000gn/T/supacode-energy-e6-focused-progress-smoke-202607100510` remained blocked at `timed out waiting for launched dev app window to become frontmost` before workload sampling.
 - The E6 blocked artifact preserves the E4/E5 report contract: `summary.csv` is header-only, `summary.jsonl` is empty, and `report.md` reports `Status: failed` with unavailable appkit proxy metrics.
+
+## 2026-07-10 Task: E7 final cumulative benchmark and report
+- The final E7 focused-visible run remained blocked before workload sampling at `timed out waiting for launched dev app window to become frontmost`; no baseline/low-energy rows were written.
+- The blocker is external to governor logic: System Events/AppKit automation cannot reliably make the launched development app frontmost in this environment, so focused-visible E4/E5/E6/E7 benchmark evidence must stay `[~]` until a GUI-capable run can sample both modes.
+- The wrapper command that launched the E7 attempt also hit zsh's read-only `status` variable while printing the exit code, but the benchmark artifact itself was already written and preserves the failed nonnumeric report contract.

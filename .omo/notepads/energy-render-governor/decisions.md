@@ -18,3 +18,8 @@
 
 ## 2026-07-10 Task: E6 OSC-9 progress throttle calibration and retention
 - Retain `defaultProgressThrottleMs=50`, `defaultFocusedFrameCapMs=33`, and `energyModeFocusedFrameCapMs=100` because E6 produced deterministic correctness evidence but no successful numeric focused-visible benchmark rows; changing cadence without a valid counter win would be speculative.
+
+## 2026-07-10 Task: E7 final cumulative benchmark and report
+- Do not report the plan's `75%` mean CPU target as met: the cumulative focused-visible benchmark has no complete baseline/final CSV or JSONL rows, so the CPU goal remains unverified and unreached.
+- Preserve the final E7 focused-visible artifact as failed nonnumeric evidence rather than fabricating a comparison: `/var/folders/db/wnztnt0d0zb87jdhxp6t_vc80000gn/T/supacode-energy-e7-final-cumulative-focused-visible-20260710052926`.
+- Keep existing governor values unchanged for E7 because E4/E5/E6 focused-visible automation is blocked before measurement and further tuning would be speculative.
