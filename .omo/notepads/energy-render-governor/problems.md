@@ -24,3 +24,8 @@
 ## 2026-07-10 Task: E4 summary/report contract correction
 - The old E4 `supacode-energy-e4-focused-progress-smoke-final` artifact must not be used as passing evidence because its machine-readable rows are missing.
 - Two fresh focused-visible E4 attempts remained blocked at `timed out waiting for launched dev app window to become frontmost`; the corrected harness now reports that as failed evidence, so E4 remains unchecked until a GUI-capable run produces baseline and low-energy rows.
+
+## 2026-07-10 Task: E5 focused default cap
+- Fresh E5 focused-visible attempt `/var/folders/db/wnztnt0d0zb87jdhxp6t_vc80000gn/T/supacode-energy-e5-focused-progress-smoke-202607100453` remained blocked before workload sampling at `timed out waiting for launched dev app window to become frontmost`.
+- The blocked E5 artifact is intentionally non-numeric: `summary.csv` contains only the header, `summary.jsonl` is empty, and `report.md` says `Status: failed` with unavailable appkit proxy metrics.
+- Safe maximum for this E5 verification loop is unit/script/build proof plus a preserved failed GUI artifact until System Events assistive/window control can make the launched dev app frontmost.
