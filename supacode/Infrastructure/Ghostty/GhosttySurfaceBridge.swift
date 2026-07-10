@@ -83,6 +83,7 @@ final class GhosttySurfaceBridge {
   private let progressThrottleInterval: Duration
   private let focusedFrameCapInterval: Duration?
   private let focusedFrameCapMilliseconds: Int?
+  private let focusedFrameCapState: TerminalFocusedFrameCapState
   private let unfocusedFrameCapInterval: Duration
   private let unfocusedFrameCapMilliseconds: Int
   private let idleQuietEnabled: Bool
@@ -133,6 +134,7 @@ final class GhosttySurfaceBridge {
     if let focusedFrameCapInterval {
       self.focusedFrameCapInterval = focusedFrameCapInterval
       self.focusedFrameCapMilliseconds = Self.durationMilliseconds(focusedFrameCapInterval)
+      self.focusedFrameCapState = .custom
     } else {
       @Shared(.settingsFile) var settingsFile
       let capMilliseconds = TerminalEnergyConfiguration.focusedFrameCapMilliseconds(
@@ -140,6 +142,9 @@ final class GhosttySurfaceBridge {
       )
       self.focusedFrameCapInterval = capMilliseconds.map { .milliseconds($0) }
       self.focusedFrameCapMilliseconds = capMilliseconds
+      self.focusedFrameCapState = TerminalEnergyConfiguration.focusedFrameCapState(
+        lowEnergyModeSetting: settingsFile.global.lowEnergyModeEnabled
+      )
     }
     if let unfocusedFrameCapInterval {
       self.unfocusedFrameCapInterval = unfocusedFrameCapInterval
@@ -175,7 +180,8 @@ final class GhosttySurfaceBridge {
     )
     if let focusedFrameCapMilliseconds {
       TerminalEnergyDiagnostics.shared.recordConfiguredFocusedFrameCap(
-        milliseconds: focusedFrameCapMilliseconds
+        milliseconds: focusedFrameCapMilliseconds,
+        state: focusedFrameCapState
       )
     }
     if let idleQuietFrameCapMilliseconds {
@@ -190,7 +196,8 @@ final class GhosttySurfaceBridge {
       capMilliseconds: unfocusedFrameCapMilliseconds,
       idleState: idleQuietState,
       quietCapMilliseconds: idleQuietFrameCapMilliseconds,
-      focusedCapMilliseconds: focusedFrameCapMilliseconds
+      focusedCapMilliseconds: focusedFrameCapMilliseconds,
+      focusedCapState: focusedFrameCapState
     )
     self.progressIdleInterval = progressIdleInterval
     self.progressStaleTimeout = progressStaleTimeout
@@ -427,6 +434,7 @@ final class GhosttySurfaceBridge {
 
     case GHOSTTY_ACTION_PROMPT_TITLE:
       state.promptTitle = action.action.prompt_title
+      flushPendingRenderProxy(reason: "prompt_title")
       onPromptTitle?()
       return true
 
@@ -678,7 +686,8 @@ final class GhosttySurfaceBridge {
       capMilliseconds: unfocusedFrameCapMilliseconds,
       idleState: idleQuietState,
       quietCapMilliseconds: idleQuietFrameCapMilliseconds,
-      focusedCapMilliseconds: focusedFrameCapMilliseconds
+      focusedCapMilliseconds: focusedFrameCapMilliseconds,
+      focusedCapState: focusedFrameCapState
     )
   }
 

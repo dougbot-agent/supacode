@@ -27,6 +27,7 @@ final class TerminalEnergyDiagnostics {
   private var lastSummaryTime = ContinuousClock.now
   private var configuredProgressThrottleMilliseconds: Int?
   private var configuredFocusedFrameCapMilliseconds: Int?
+  private var configuredFocusedFrameCapState: TerminalFocusedFrameCapState?
   private var configuredUnfocusedFrameCapMilliseconds: Int?
   private var configuredIdleQuietGovernor: (thresholdMilliseconds: Int, capMilliseconds: Int)?
   private var workloadName: String
@@ -89,7 +90,8 @@ final class TerminalEnergyDiagnostics {
     capMilliseconds: Int,
     idleState: TerminalIdleQuietState = .inactive,
     quietCapMilliseconds: Int? = nil,
-    focusedCapMilliseconds: Int? = nil
+    focusedCapMilliseconds: Int? = nil,
+    focusedCapState: TerminalFocusedFrameCapState = .default
   ) {
     guard enabled else { return }
     self.suspendState = suspendState.rawValue
@@ -114,7 +116,7 @@ final class TerminalEnergyDiagnostics {
       return
     }
     if focused, let focusedCapMilliseconds {
-      governorState = "focused_low_energy_cap"
+      governorState = focusedCapState.rawValue
       capState = "active"
       capFPS = Self.format(1_000 / Double(max(1, focusedCapMilliseconds)))
       logGovernorStateIfNeeded()
@@ -186,11 +188,22 @@ final class TerminalEnergyDiagnostics {
     log("render_stats: enabled progress_throttle_ms=\(milliseconds)")
   }
 
-  func recordConfiguredFocusedFrameCap(milliseconds: Int) {
+  func recordConfiguredFocusedFrameCap(milliseconds: Int, state: TerminalFocusedFrameCapState) {
     guard enabled else { return }
-    guard configuredFocusedFrameCapMilliseconds != milliseconds else { return }
+    guard configuredFocusedFrameCapMilliseconds != milliseconds
+      || configuredFocusedFrameCapState != state
+    else { return }
     configuredFocusedFrameCapMilliseconds = milliseconds
-    log("render_stats: enabled focused_low_energy_frame_cap_ms=\(milliseconds)")
+    configuredFocusedFrameCapState = state
+    let key = switch state {
+    case .default:
+      "focused_default_frame_cap_ms"
+    case .lowEnergy:
+      "focused_low_energy_frame_cap_ms"
+    case .custom:
+      "focused_custom_frame_cap_ms"
+    }
+    log("render_stats: enabled \(key)=\(milliseconds)")
   }
 
   func recordConfiguredUnfocusedFrameCap(milliseconds: Int) {

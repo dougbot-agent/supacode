@@ -2,6 +2,7 @@ import Foundation
 
 nonisolated enum TerminalEnergyConfiguration {
   static let defaultProgressThrottleMs = 50
+  static let defaultFocusedFrameCapMs = 33
   static let energyModeFocusedFrameCapMs = 100
   static let energyModeProgressThrottleMs = energyModeFocusedFrameCapMs
   static let defaultUnfocusedFrameCapMs = 250
@@ -41,11 +42,8 @@ nonisolated enum TerminalEnergyConfiguration {
     if let override = positiveInt("SUPACODE_PROGRESS_THROTTLE_MS", environment: environment) {
       return override
     }
-    if let focusedCap = focusedFrameCapMilliseconds(
-      environment: environment,
-      lowEnergyModeSetting: lowEnergyModeSetting
-    ) {
-      return focusedCap
+    if lowEnergyModeSetting || isEnabled("SUPACODE_ENERGY_MODE", environment: environment) {
+      return energyModeProgressThrottleMs
     }
     return defaultProgressThrottleMs
   }
@@ -73,10 +71,28 @@ nonisolated enum TerminalEnergyConfiguration {
     }
     // Either the persisted user setting or the env override enables energy mode.
     // The env var stays for headless benchmarking; the setting is the shipping UI.
-    if lowEnergyModeSetting || isEnabled("SUPACODE_ENERGY_MODE", environment: environment) {
+    if focusedFrameCapState(environment: environment, lowEnergyModeSetting: lowEnergyModeSetting)
+      == .lowEnergy
+    {
       return energyModeFocusedFrameCapMs
     }
-    return nil
+    return defaultFocusedFrameCapMs
+  }
+
+  static func focusedFrameCapState(
+    environment: [String: String] = ProcessInfo.processInfo.environment,
+    lowEnergyModeSetting: Bool = false
+  ) -> TerminalFocusedFrameCapState {
+    if positiveInt("SUPACODE_FOCUSED_FRAME_CAP_MS", environment: environment) != nil {
+      return .custom
+    }
+    if positiveInt("SUPACODE_PROGRESS_THROTTLE_MS", environment: environment) != nil {
+      return .custom
+    }
+    if lowEnergyModeSetting || isEnabled("SUPACODE_ENERGY_MODE", environment: environment) {
+      return .lowEnergy
+    }
+    return .default
   }
 
   static func unfocusedFrameCapInterval(
@@ -126,6 +142,12 @@ nonisolated enum TerminalEnergyConfiguration {
     else { return nil }
     return value
   }
+}
+
+nonisolated enum TerminalFocusedFrameCapState: String, Equatable {
+  case `default` = "focused_default_cap"
+  case lowEnergy = "focused_low_energy_cap"
+  case custom = "focused_custom_cap"
 }
 
 nonisolated enum TerminalPresentationSuspendState: String, Equatable {
