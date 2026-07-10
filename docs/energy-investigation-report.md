@@ -243,3 +243,62 @@ Fresh failed artifact:
 - Run log: `error: timed out waiting for launched dev app window to become frontmost`.
 
 Conclusion: E4-E7 focused-visible statuses remain `[~]`. The blocker is external to the governor implementation in this session because neither the public AppKit activation API nor the app's own socket surfacing path can make the benchmark app frontmost. A valid unblocked result still requires a GUI-capable environment where the launched app can become frontmost and write matching baseline and low-energy/default rows in both `summary.csv` and `summary.jsonl`.
+
+## Focused-visible retry after user request
+
+The focused-visible path was retried after the user requested another attempt. This time the harness passed the frontmost activation gate and produced complete machine-readable rows.
+
+Progress-only E4-E7 retry artifact:
+
+- `/var/folders/db/wnztnt0d0zb87jdhxp6t_vc80000gn/T/supacode-energy-e4-e7-focused-progress-retry-20260710063645`
+- `summary.csv`: `2` data rows, one `baseline` and one `low-energy`.
+- `summary.jsonl`: `2` rows, one `baseline` and one `low-energy`.
+- Activation evidence: `activate_started_app` completed for both modes; run PIDs were `89986` and `1580`; post-run observable frontmost app was `pid=50602 bundle=app.supabit.supacode name=supacode`.
+- Result: baseline CPU `18.9667`, Low Energy CPU `19.0458`, CPU reduction `-0.42%`.
+- Result: mean `appkit_proxy` frame reduction vs requests `85.83%`, passing the `50%` progress-only appkit-proxy target.
+
+Full E7 mixed retry artifact:
+
+- `/var/folders/db/wnztnt0d0zb87jdhxp6t_vc80000gn/T/supacode-energy-e7-cumulative-focused-visible-retry-20260710063838`
+- `summary.csv`: `6` data rows, three `baseline` and three `low-energy`.
+- `summary.jsonl`: `6` rows, three `baseline` and three `low-energy`.
+- Result: baseline CPU `21.2625`, Low Energy CPU `20.9089`, CPU reduction `1.66%`.
+- Result: mean `appkit_proxy` frame reduction vs requests `46.85%`, below the mixed `70%` appkit-proxy target.
+
+Conclusion: focused-visible is no longer blocked in this retry, but E7 still fails the cumulative target. The valid mixed focused-visible artifact measures only `1.66%` CPU reduction versus the `75%` goal. The proxy reductions remain scoped to `appkit_proxy` committed frame proxies and do not prove native Metal/Ghostty present reductions.
+
+## Final safe-maximum disposition for E4, E5, and E7
+
+Focused-visible activation now works and the final artifacts are valid. The safe wrapper-level maximum still fails the energy goals. There is no remaining safe wrapper-level iteration to take without either setting the focused committed proxy cadence below the permitted Low Energy floor or weakening immediate interaction semantics.
+
+Direct E4 comparison artifact:
+
+`/var/folders/db/wnztnt0d0zb87jdhxp6t_vc80000gn/T/supacode-energy-e4-focused-visible-direct-20260710085455`
+
+Valid files read for this disposition:
+
+`/var/folders/db/wnztnt0d0zb87jdhxp6t_vc80000gn/T/supacode-energy-e4-focused-visible-direct-20260710085455/comparison.jsonl`
+
+`/var/folders/db/wnztnt0d0zb87jdhxp6t_vc80000gn/T/supacode-energy-e4-focused-visible-direct-20260710085455/report.md`
+
+The direct E4 Low Energy vs baseline comparison measured baseline CPU `18.9323`, Low Energy CPU `20.2323`, CPU reduction `-6.87%`, baseline committed `appkit_proxy` rate `10.9329/s`, Low Energy committed `appkit_proxy` rate `9.7884/s`, and direct committed `appkit_proxy` reduction `10.47%`. E4's `50%` focused Low Energy target is unmet. The previous large proxy percentages were proxy-vs-request reductions, not direct Low Energy-vs-baseline committed proxy deltas.
+
+E5 is not meaningfully exercised by these focused-visible workloads. The E5 default cap is about `30fps`, but the observed baseline committed `appkit_proxy` rate in the direct E4 artifact is only `10.9329/s`. A `30fps` cap cannot reduce a workload already committing around `10` proxies/s, so E5 has no meaningful measurable effect here.
+
+Full E7 mixed focused-visible artifact:
+
+`/var/folders/db/wnztnt0d0zb87jdhxp6t_vc80000gn/T/supacode-energy-e7-cumulative-focused-visible-retry-20260710063838`
+
+Valid files read for this disposition:
+
+`/var/folders/db/wnztnt0d0zb87jdhxp6t_vc80000gn/T/supacode-energy-e7-cumulative-focused-visible-retry-20260710063838/summary.csv`
+
+`/var/folders/db/wnztnt0d0zb87jdhxp6t_vc80000gn/T/supacode-energy-e7-cumulative-focused-visible-retry-20260710063838/report.md`
+
+The full E7 mixed retry measured baseline CPU `21.2625`, Low Energy CPU `20.9089`, CPU reduction `1.66%`, and mixed proxy-vs-request reduction `46.85%`. E7's `75%` CPU target is unmet, and the mixed `70%` proxy-vs-request target is also unmet. This is a failed safe-maximum result, not a focused-visible activation blocker.
+
+The distinction is important. The direct E4 number compares committed `appkit_proxy` rates between baseline and Low Energy and shows only `10.47%` reduction. The E7 `46.85%` number compares committed proxies against presentation requests within the mixed run. Neither number measures native Metal frames or Ghostty renderer presents. `appkit_proxy` remains a Swift/AppKit bridge proxy counter.
+
+Oracle recommendation accepted: with the current baseline committed rate of `10.9329/s`, a `50%` direct focused Low Energy reduction would require about `5.47/s`. That means a focused cadence below `5.5fps`, which falls below the permitted `10fps` cap. The only wrapper-level alternative would delay immediate interaction semantics, which is not safe. Further improvement requires a native Ghostty/Metal renderer present hook or renderer-thread cadence work outside this wrapper layer.
+
+Relevant commits for this final disposition are `046430ee` for direct energy benchmark deltas and `728b7427` for cadence retiming. The result is honest and final for the wrapper layer: E4 target unmet, E5 not meaningfully exercised, and E7 safe maximum failed.
