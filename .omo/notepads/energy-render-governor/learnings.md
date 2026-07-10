@@ -33,3 +33,8 @@
 - Atlas found the prior E4 artifact was invalid: `summary.csv` had only the header and `summary.jsonl` was empty while `report.md` retained numeric pass values from an earlier run.
 - The benchmark harness now removes stale reports before each run, writes an explicit failed report on nonzero exits after output initialization, and validates expected CSV/JSONL row counts before writing any numeric success report.
 - Fresh blocked artifact `/var/folders/db/wnztnt0d0zb87jdhxp6t_vc80000gn/T/supacode-energy-e4-focused-progress-smoke-contract-postbuild-20260710043019` correctly has header-only CSV, empty JSONL, and `Status: failed` with unavailable metrics instead of a fabricated pass.
+
+## 2026-07-10 Task: E5 focused default cap
+- E5 adds a normal focused bridge cap at `focused_default_frame_cap_ms=33` (`governor_state=focused_default_cap`, `cap_fps=30.30`) while keeping Low Energy at `focused_low_energy_cap` / 100ms and idle quiet at 250ms above both focused caps.
+- `SUPACODE_PROGRESS_THROTTLE_MS` and `SUPACODE_FOCUSED_FRAME_CAP_MS` remain explicit benchmark overrides and report as `focused_custom_cap`; default `progress_throttle_ms` stays 50ms so the focused cap is selected by bridge cadence precedence instead of relabeling the base progress throttle.
+- Prompt-title actions now flush pending bridge work like input, resize, scroll, focus regain, command finish, and bell paths, so prompt-ready UI does not wait behind the focused cap.

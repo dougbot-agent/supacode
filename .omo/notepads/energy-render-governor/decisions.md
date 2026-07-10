@@ -11,3 +11,7 @@
 ## 2026-07-10 Task: E4 summary/report contract correction
 - Treat missing CSV/JSONL machine-readable rows as a hard benchmark failure even if a report file exists.
 - A successful numeric report is valid only after `summary.csv` and `summary.jsonl` contain the expected row count for every requested mode and repeat.
+
+## 2026-07-10 Task: E5 focused default cap
+- Choose 33ms for the normal focused cap because it is the conservative integer cadence closest to 30fps and stays weaker than Low Energy's existing 100ms focused cap.
+- Keep E5 in the existing bridge cadence selector instead of adding another scheduler: hidden suspend, unfocused/background cap, idle quiet, focused cap, then base throttle.
