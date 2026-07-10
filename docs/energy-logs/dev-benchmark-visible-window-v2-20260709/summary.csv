@@ -1,0 +1,7 @@
+mode,run,mean_cpu,render_stats_count,powermetrics_collected,run_dir
+baseline,1,12.8687,16,false,docs/energy-logs/dev-benchmark-visible-window-v2-20260709/baseline/run-1
+baseline,2,13.0266,16,false,docs/energy-logs/dev-benchmark-visible-window-v2-20260709/baseline/run-2
+baseline,3,13.4094,16,false,docs/energy-logs/dev-benchmark-visible-window-v2-20260709/baseline/run-3
+low-energy,1,13.6797,16,false,docs/energy-logs/dev-benchmark-visible-window-v2-20260709/low-energy/run-1
+low-energy,2,12.9062,16,false,docs/energy-logs/dev-benchmark-visible-window-v2-20260709/low-energy/run-2
+low-energy,3,12.9062,16,false,docs/energy-logs/dev-benchmark-visible-window-v2-20260709/low-energy/run-3

@@ -74,6 +74,7 @@ public struct SettingsFeature {
     public var confirmQuitMode: ConfirmQuitMode
     public var terminateSessionsOnQuit: Bool
     public var remoteSessionPersistenceEnabled: Bool
+    public var lowEnergyModeEnabled: Bool
     public var cliInstallState = CLIInstallState.checking
     /// Aggregate per-agent install state for the unified integration row.
     public var agentIntegrationStates: [SkillAgent: AgentIntegrationRowState] = [:]
@@ -123,6 +124,7 @@ public struct SettingsFeature {
       confirmQuitMode = settings.confirmQuitMode
       terminateSessionsOnQuit = settings.terminateSessionsOnQuit
       remoteSessionPersistenceEnabled = settings.remoteSessionPersistenceEnabled
+      lowEnergyModeEnabled = settings.lowEnergyModeEnabled
       defaultWorktreeBaseDirectoryPath =
         SupacodePaths.normalizedWorktreeBaseDirectoryPath(settings.defaultWorktreeBaseDirectoryPath) ?? ""
     }
@@ -163,7 +165,8 @@ public struct SettingsFeature {
         autoUpdateAgentIntegrationsEnabled: autoUpdateAgentIntegrationsEnabled,
         confirmQuitMode: confirmQuitMode,
         terminateSessionsOnQuit: terminateSessionsOnQuit,
-        remoteSessionPersistenceEnabled: remoteSessionPersistenceEnabled
+        remoteSessionPersistenceEnabled: remoteSessionPersistenceEnabled,
+        lowEnergyModeEnabled: lowEnergyModeEnabled
       )
     }
   }
@@ -302,6 +305,7 @@ public struct SettingsFeature {
         state.confirmQuitMode = normalizedSettings.confirmQuitMode
         state.terminateSessionsOnQuit = normalizedSettings.terminateSessionsOnQuit
         state.remoteSessionPersistenceEnabled = normalizedSettings.remoteSessionPersistenceEnabled
+        state.lowEnergyModeEnabled = normalizedSettings.lowEnergyModeEnabled
         state.defaultWorktreeBaseDirectoryPath = normalizedSettings.defaultWorktreeBaseDirectoryPath ?? ""
         state.syncGlobalDefaults(from: normalizedSettings)
         synchronizeRepositorySelection(for: &state)

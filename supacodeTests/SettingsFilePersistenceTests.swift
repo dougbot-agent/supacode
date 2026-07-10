@@ -428,6 +428,49 @@ struct SettingsFilePersistenceTests {
 
     #expect(reloaded.global.remoteSessionPersistenceEnabled == false)
   }
+
+  @Test(.dependencies) func decodesMissingLowEnergyModeEnabledAsFalse() throws {
+    let legacy = LegacySettingsFile(
+      global: LegacyGlobalSettings(
+        appearanceMode: .dark,
+        updatesAutomaticallyCheckForUpdates: false,
+        updatesAutomaticallyDownloadUpdates: true
+      ),
+      repositories: [:]
+    )
+    let data = try JSONEncoder().encode(legacy)
+    let storage = MutableTestStorage(initialData: data)
+
+    let settings: SettingsFile = withDependencies {
+      $0.settingsFileStorage = storage.storage
+    } operation: {
+      @Shared(.settingsFile) var settings: SettingsFile
+      return settings
+    }
+
+    // Low Energy Mode is opt-in: pre-feature files default to off.
+    #expect(settings.global.lowEnergyModeEnabled == false)
+  }
+
+  @Test(.dependencies) func roundTripsExplicitLowEnergyModeEnabled() throws {
+    let storage = SettingsTestStorage()
+
+    withDependencies {
+      $0.settingsFileStorage = storage.storage
+    } operation: {
+      @Shared(.settingsFile) var settings: SettingsFile
+      $settings.withLock { $0.global.lowEnergyModeEnabled = true }
+    }
+
+    let reloaded: SettingsFile = withDependencies {
+      $0.settingsFileStorage = storage.storage
+    } operation: {
+      @Shared(.settingsFile) var reloaded: SettingsFile
+      return reloaded
+    }
+
+    #expect(reloaded.global.lowEnergyModeEnabled == true)
+  }
 }
 
 nonisolated private final class MutableTestStorage: @unchecked Sendable {

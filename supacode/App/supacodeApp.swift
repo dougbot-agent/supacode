@@ -114,6 +114,7 @@ final class SupacodeAppDelegate: NSObject, NSApplicationDelegate {
 @MainActor
 struct SupacodeApp: App {
   @NSApplicationDelegateAdaptor(SupacodeAppDelegate.self) private var appDelegate
+  @Environment(\.openWindow) private var openWindow
   @State private var ghostty: GhosttyRuntime
   @State private var ghosttyShortcuts: GhosttyShortcutManager
   @State private var terminalManager: WorktreeTerminalManager
@@ -440,11 +441,19 @@ struct SupacodeApp: App {
     .environment(ghosttyShortcuts)
     .environment(commandKeyObserver)
     .commands {
-      WorktreeCommands(store: store)
-      SidebarCommands()
+      Group {
+        WorktreeCommands(store: store)
+        SidebarCommands()
+      }
       Group {
         TerminalCommands(ghosttyShortcuts: ghosttyShortcuts)
         TerminalTabSelectionCommands(store: store)
+      }
+      CommandGroup(replacing: .appInfo) {
+        Button("About Supacode") {
+          openWindow(id: WindowID.about)
+        }
+        .help("Show About Supacode")
       }
       WindowCommands(ghosttyShortcuts: ghosttyShortcuts)
       CommandGroup(after: .textEditing) {
@@ -494,6 +503,12 @@ struct SupacodeApp: App {
     .windowToolbarStyle(.unified)
     .defaultSize(width: 800, height: 600)
     .restorationBehavior(.disabled)
+    Window("About Supacode", id: WindowID.about) {
+      AboutSupacodeView()
+    }
+    .handlesExternalEvents(matching: [])
+    .defaultSize(width: 360, height: 260)
+    .restorationBehavior(.disabled)
     Window("Deeplink Reference", id: WindowID.deeplinkReference) {
       DeeplinkReferenceView()
     }
@@ -508,5 +523,40 @@ struct SupacodeApp: App {
     .windowToolbarStyle(.unified)
     .defaultSize(width: 720, height: 640)
     .restorationBehavior(.disabled)
+  }
+}
+
+private struct AboutSupacodeView: View {
+  var body: some View {
+    VStack(spacing: 12) {
+      Image(nsImage: NSApp.applicationIconImage)
+        .resizable()
+        .frame(width: 72, height: 72)
+
+      Text("Supacode")
+        .font(.title.bold())
+
+      Text("Version \(Self.versionText)")
+        .foregroundStyle(.secondary)
+
+      Text("Environment: \(Self.environmentText)")
+        .font(.caption.monospaced())
+        .foregroundStyle(.secondary)
+    }
+    .padding(28)
+    .frame(maxWidth: .infinity, maxHeight: .infinity)
+    .textSelection(.enabled)
+  }
+
+  private static var versionText: String {
+    let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""
+    guard let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String else {
+      return version
+    }
+    return "\(version) (\(build))"
+  }
+
+  private static var environmentText: String {
+    Bundle.main.object(forInfoDictionaryKey: "SupacodeEnvironmentDisplay") as? String ?? "Unknown"
   }
 }

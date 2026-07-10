@@ -1404,6 +1404,7 @@ final class WorktreeTerminalState {
     if let socketPath {
       env["SUPACODE_SOCKET_PATH"] = socketPath
     }
+    ZmxAttach.clearInheritedSessionEnvironment(in: &env)
     // Mark blocking-script surfaces so the user's shell profile can skip its
     // interactive init (prompt, plugins, banners) for these transient tabs.
     if let blockingScriptKind = blockingScripts[tabId] {
