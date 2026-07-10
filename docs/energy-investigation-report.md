@@ -223,3 +223,23 @@ Outcomes:
 - `appkit_proxy` counters cover Swift/AppKit bridge proxy requests and committed proxy frames, not true Metal present frames or native Ghostty renderer thread wakeups.
 - E3's spinner workload confirms this limitation: idle quiet state was reached, but appkit-proxy reduction stayed `0.00%` because the workload's native renderer churn is outside the Swift proxy accounting path.
 - The machine-readable contract remains strict: no success report is valid without matching baseline and final CSV/JSONL rows for every requested mode and repeat.
+
+## Focused-visible non-System-Events discovery
+
+The focused-visible blocker was rechecked without relying on macOS System Events assistive authorization. No safe mechanism tested in this repo/toolchain produced a valid frontmost focused-visible benchmark state.
+
+Tested mechanisms:
+
+- Existing app-owned path: `supacode open` dispatches `supacode://` through the benchmark socket to `.open`, which calls `NSApplication.shared.surfaceMainWindow()` inside the app. In this session the command completed, but `NSWorkspace.shared.frontmostApplication` still reported `frontmost_pid=178 bundle=com.apple.loginwindow`, and the target debug app stayed inactive.
+- Public AppKit path: `NSRunningApplication(processIdentifier:).activate(options: [.activateAllWindows])` resolved the debug app as `bundle=app.supabit.supacode`, but returned `activate_ok=false` and left `com.apple.loginwindow` frontmost.
+- LaunchServices/open path: the benchmark can launch the app and discover its socket, but the focused-visible gate still times out waiting for the launched app window to become frontmost.
+
+Fresh failed artifact:
+
+- `/var/folders/db/wnztnt0d0zb87jdhxp6t_vc80000gn/T/supacode-energy-focused-visible-safe-discovery-20260710053840`
+- `summary.csv`: header only.
+- `summary.jsonl`: empty.
+- `report.md`: `Status: failed`, CPU/proxy metrics unavailable.
+- Run log: `error: timed out waiting for launched dev app window to become frontmost`.
+
+Conclusion: E4-E7 focused-visible statuses remain `[~]`. The blocker is external to the governor implementation in this session because neither the public AppKit activation API nor the app's own socket surfacing path can make the benchmark app frontmost. A valid unblocked result still requires a GUI-capable environment where the launched app can become frontmost and write matching baseline and low-energy/default rows in both `summary.csv` and `summary.jsonl`.
