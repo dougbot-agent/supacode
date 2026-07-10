@@ -39,6 +39,10 @@ previous_render_stats_env=""
 previous_energy_mode_env=""
 previous_render_stats_file_env=""
 launch_env_active=false
+summary_csv=""
+summary_jsonl=""
+report_path=""
+report_completed=false
 
 usage() {
   cat <<'EOF'
@@ -584,6 +588,9 @@ clear_benchmark_socket_file() {
 
 cleanup() {
   status=$?
+  if [ "${status}" -ne 0 ] && [ -n "${report_path}" ] && [ "${report_completed}" = false ]; then
+    write_failed_report
+  fi
   if [ -n "${created_tab_id}" ] && [ -n "${worktree_id}" ] && [ -x "${cli_path}" ]; then
     run_cli tab close --worktree "${worktree_id}" --tab "${created_tab_id}" >/dev/null 2>&1 || true
   fi
@@ -602,6 +609,27 @@ cleanup() {
   exit "${status}"
 }
 trap cleanup EXIT INT TERM
+
+write_failed_report() {
+  cat >"${report_path}" <<EOF
+# Supacode Energy Benchmark
+
+- Output: ${output_dir}
+- Workload: ${workload_name}
+- State: ${workload_state}
+- Status: failed
+- Baseline mean CPU: unavailable
+- Low-energy mean CPU: unavailable
+- Mean CPU reduction: unavailable%
+- 75% target: unavailable
+- Mean appkit proxy frame reduction vs requests: unavailable%
+- $(frame_target_percent)% appkit proxy target: unavailable
+- Counter scope: appkit_proxy committed frame proxies, not true Metal present frames
+
+No successful report was produced because the benchmark exited before complete CSV/JSONL rows were written.
+Raw logs are preserved in each per-run directory that started.
+EOF
+}
 
 start_top_collector() {
   pid="$1"
@@ -738,6 +766,55 @@ proxy_reduction_percent() {
   awk -v requests="${requests_mean}" -v commits="${commits_mean}" 'BEGIN { if (requests > 0) printf "%.2f", ((requests - commits) / requests) * 100 }'
 }
 
+mode_count() {
+  old_ifs="${IFS}"
+  IFS=','
+  count=0
+  for _mode in ${modes}; do
+    count=$((count + 1))
+  done
+  IFS="${old_ifs}"
+  printf '%s\n' "${count}"
+}
+
+summary_csv_data_rows() {
+  awk 'NR > 1 { count++ } END { print count + 0 }' "${summary_csv}"
+}
+
+summary_jsonl_rows() {
+  awk 'NF { count++ } END { print count + 0 }' "${summary_jsonl}"
+}
+
+summary_csv_mode_rows() {
+  mode="$1"
+  awk -F, -v mode="${mode}" '$1 == mode { count++ } END { print count + 0 }' "${summary_csv}"
+}
+
+summary_jsonl_mode_rows() {
+  mode="$1"
+  awk -v mode="\"mode\":\"${mode}\"" 'index($0, mode) > 0 { count++ } END { print count + 0 }' "${summary_jsonl}"
+}
+
+validate_summary_contract() {
+  expected_rows=$((repeat_count * $(mode_count)))
+  csv_rows="$(summary_csv_data_rows)"
+  jsonl_rows="$(summary_jsonl_rows)"
+  [ "${csv_rows}" -eq "${expected_rows}" ] || fail "summary.csv has ${csv_rows} data rows, expected ${expected_rows}"
+  [ "${jsonl_rows}" -eq "${expected_rows}" ] || fail "summary.jsonl has ${jsonl_rows} rows, expected ${expected_rows}"
+
+  old_ifs="${IFS}"
+  IFS=','
+  for mode in ${modes}; do
+    IFS="${old_ifs}"
+    csv_mode_rows="$(summary_csv_mode_rows "${mode}")"
+    jsonl_mode_rows="$(summary_jsonl_mode_rows "${mode}")"
+    [ "${csv_mode_rows}" -eq "${repeat_count}" ] || fail "summary.csv has ${csv_mode_rows} ${mode} rows, expected ${repeat_count}"
+    [ "${jsonl_mode_rows}" -eq "${repeat_count}" ] || fail "summary.jsonl has ${jsonl_mode_rows} ${mode} rows, expected ${repeat_count}"
+    IFS=','
+  done
+  IFS="${old_ifs}"
+}
+
 frame_target_percent() {
   case "${workload_name}:${workload_state}" in
     progress-only:focused-visible) printf '50' ;;
@@ -818,6 +895,16 @@ powermetrics=${powermetrics_mode}
 EOF
 }
 
+initialize_output_files() {
+  write_context
+  summary_csv="${output_dir}/summary.csv"
+  summary_jsonl="${output_dir}/summary.jsonl"
+  report_path="${output_dir}/report.md"
+  rm -f "${report_path}"
+  printf 'mode,workload,state,run,mean_cpu,render_stats_count,render_stats_proof,powermetrics_collected,presentation_requests_per_s,committed_frame_proxies_per_s,coalesced_frame_proxies_per_s,proxy_reduction_percent,run_dir\n' >"${summary_csv}"
+  : >"${summary_jsonl}"
+}
+
 dry_run_plan() {
   workload_command="${workload_path} --duration $((duration_seconds + workload_start_guard_seconds)) --workload ${workload_name}"
   cat <<EOF
@@ -874,17 +961,12 @@ if [ "${dry_run}" = true ]; then
   exit 0
 fi
 
+initialize_output_files
+
 [ -d "${app_path}" ] || fail "missing app bundle at ${app_path}. Run: make build-app"
 [ -x "${cli_path}" ] || fail "missing executable CLI at ${cli_path}. Run: make build-app"
 [ -x "${zmx_path}" ] || fail "missing executable zmx at ${zmx_path}. Run: make build-app"
 [ -x "${workload_path}" ] || fail "missing executable workload at ${workload_path}"
-
-write_context
-summary_csv="${output_dir}/summary.csv"
-summary_jsonl="${output_dir}/summary.jsonl"
-report_path="${output_dir}/report.md"
-printf 'mode,workload,state,run,mean_cpu,render_stats_count,render_stats_proof,powermetrics_collected,presentation_requests_per_s,committed_frame_proxies_per_s,coalesced_frame_proxies_per_s,proxy_reduction_percent,run_dir\n' >"${summary_csv}"
-: >"${summary_jsonl}"
 
 old_ifs="${IFS}"
 IFS=','
@@ -964,6 +1046,8 @@ for mode in ${modes}; do
 done
 IFS="${old_ifs}"
 
+validate_summary_contract
+
 baseline_mean="$(awk -F, '$1 == "baseline" && $5 != "" { sum += $5; count++ } END { if (count > 0) printf "%.4f", sum / count }' "${summary_csv}")"
 low_energy_mean="$(awk -F, '$1 == "low-energy" && $5 != "" { sum += $5; count++ } END { if (count > 0) printf "%.4f", sum / count }' "${summary_csv}")"
 reduction=""
@@ -1004,6 +1088,7 @@ cat >"${report_path}" <<EOF
 
 Raw logs are preserved in each per-run directory.
 EOF
+report_completed=true
 
 note "Wrote summary: ${summary_csv}"
 note "Wrote report: ${report_path}"

@@ -89,6 +89,22 @@ assert_contains "${dry_run_log}" "summary csv:"
 assert_contains "${dry_run_log}" "summary jsonl:"
 assert_contains "${dry_run_log}" "render-stats.log"
 
+stale_output_dir="${TMPDIR:-/tmp}/supacode-energy-stale-report-test"
+rm -rf "${stale_output_dir}"
+mkdir -p "${stale_output_dir}"
+printf -- '- Mean appkit proxy frame reduction vs requests: 99.99%%\n' >"${stale_output_dir}/report.md"
+failed_report_log="${TMPDIR:-/tmp}/supacode-energy-stale-report-test.log"
+if "${benchmark_script}" --repeat 1 --duration 2 --warmup 1 --powermetrics off --workload progress-only --state focused-visible --output-dir "${stale_output_dir}" --app "${TMPDIR:-/tmp}/missing-supacode.app" >"${failed_report_log}" 2>&1; then
+  fail "benchmark with missing app succeeded"
+fi
+assert_contains "${failed_report_log}" "missing app bundle"
+assert_not_contains "${stale_output_dir}/report.md" "99.99%"
+assert_contains "${stale_output_dir}/report.md" "Status: failed"
+assert_contains "${stale_output_dir}/report.md" "No successful report was produced because the benchmark exited before complete CSV/JSONL rows were written."
+assert_contains "${stale_output_dir}/summary.csv" "mode,workload,state,run"
+[ "$(awk 'END { print NR + 0 }' "${stale_output_dir}/summary.csv")" -eq 1 ] || fail "failed summary.csv contains data rows"
+[ ! -s "${stale_output_dir}/summary.jsonl" ] || fail "failed summary.jsonl contains rows"
+
 background_dry_run_log="${TMPDIR:-/tmp}/supacode-energy-benchmark-background-dry-run.log"
 "${benchmark_script}" --dry-run --repeat 1 --duration 2 --warmup 1 --powermetrics off --workload progress-only --state background-unfocused --output-dir "${TMPDIR:-/tmp}/supacode-energy-background-dry-run" >"${background_dry_run_log}"
 assert_contains "${background_dry_run_log}" "state: background-unfocused"

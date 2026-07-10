@@ -28,3 +28,8 @@
 - E4 makes the Low Energy Mode focused interactive bridge cap explicit at `focused_low_energy_frame_cap_ms=100` (10fps) through the same persisted setting / `SUPACODE_ENERGY_MODE=1` gate; `SUPACODE_PROGRESS_THROTTLE_MS` still carries the focused cap for benchmark overrides unless `SUPACODE_FOCUSED_FRAME_CAP_MS` is set.
 - Focused Low Energy is a lower-precedence bridge cadence than hidden suspend, background/unfocused cap, and E3 idle quiet; TestClock coverage proves focused cadence, setting/env convergence, interaction flush, and idle quiet precedence.
 - Focused `progress-only` evidence artifact: `/var/folders/db/wnztnt0d0zb87jdhxp6t_vc80000gn/T/supacode-energy-e4-focused-progress-smoke-final`; report shows `79.64%` mean appkit proxy frame reduction vs requests and passes the E4 50% appkit proxy target.
+
+## 2026-07-10 Task: E4 summary/report contract correction
+- Atlas found the prior E4 artifact was invalid: `summary.csv` had only the header and `summary.jsonl` was empty while `report.md` retained numeric pass values from an earlier run.
+- The benchmark harness now removes stale reports before each run, writes an explicit failed report on nonzero exits after output initialization, and validates expected CSV/JSONL row counts before writing any numeric success report.
+- Fresh blocked artifact `/var/folders/db/wnztnt0d0zb87jdhxp6t_vc80000gn/T/supacode-energy-e4-focused-progress-smoke-contract-postbuild-20260710043019` correctly has header-only CSV, empty JSONL, and `Status: failed` with unavailable metrics instead of a fabricated pass.

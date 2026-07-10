@@ -20,3 +20,7 @@
 ## 2026-07-10 Task: E4 focused Low Energy cap
 - The final post-build benchmark retries timed out while applying `focused-visible` because System Events lost assistive access (`osascript` error -25211); the earlier E4 focused `progress-only` artifact remains the benchmark proof for appkit proxy counters, and final code/test/build gates passed after the diagnostic-only change.
 - Long focused workloads usually enter E3 `focused_idle_quiet_governor` before the 5s render_stats summary, so E4 adds deduped governor transition logs to expose the initial `focused_low_energy_cap` state before idle quiet takes precedence.
+
+## 2026-07-10 Task: E4 summary/report contract correction
+- The old E4 `supacode-energy-e4-focused-progress-smoke-final` artifact must not be used as passing evidence because its machine-readable rows are missing.
+- Two fresh focused-visible E4 attempts remained blocked at `timed out waiting for launched dev app window to become frontmost`; the corrected harness now reports that as failed evidence, so E4 remains unchecked until a GUI-capable run produces baseline and low-energy rows.
