@@ -160,3 +160,66 @@ Outcomes:
 2. Run the provided spinner/stream benchmarks interactively on a Mac with Supacode visible and collect `render_stats`, `top`, and `powermetrics` logs.
 3. If progress/app-side churn is confirmed, consider a user-facing setting for energy mode in Settings rather than env-only control.
 4. Investigate output-frame coalescing lower in GhosttyKit if high-frequency stdout still produces high GPU frame commits despite app-side progress coalescing.
+
+## Final cumulative E7 status
+
+The final cumulative benchmark did not produce a valid numeric comparison. The plan's `75%` mean CPU goal is unverified and unreached because the focused-visible automation path cannot reliably make the launched development app frontmost in this environment, and `appkit_proxy` counters do not measure true native Metal/Ghostty presents.
+
+### Energy governor commit ledger
+
+| Stage | Commit | Evidence scope |
+| --- | --- | --- |
+| E0 | `88801615` Add render proof counters | Added appkit-proxy render request/commit/coalescing diagnostics. |
+| E0 | `1b41daa8` Add energy workload variants | Added deterministic workload variants. |
+| E0 | `652965b6` Add workload metadata to energy benchmark | Added workload/state metadata to benchmark output. |
+| E0 | `a421067d` Test energy benchmark proof modes | Added benchmark contract tests. |
+| E0 | `38656b9b` Record E0 proof evidence | Recorded proof artifact `/var/folders/db/wnztnt0d0zb87jdhxp6t_vc80000gn/T/supacode-energy-proof-smoke-e0-20260710013129`. |
+| E1 | `b9fa8f76` Cap unfocused terminal render proxies | Added background/unfocused bridge cap. |
+| E2 | `fccde3b8` Suspend hidden terminal presentation proxies | Added hidden/minimized presentation suspend. |
+| E3 | `f4e1e501` Add idle quiet terminal render governor | Added focused idle quiet bridge governor. |
+| E4 | `2f2e3ddf` Add focused Low Energy terminal cap | Added explicit focused Low Energy cap. |
+| E4 | `5924984f` Fix energy benchmark report contract | Enforced failed nonnumeric reports when rows are missing. |
+| E5 | `ec312535` Add focused default terminal cap | Added default focused bridge cap. |
+| E5 | `201cc8ed` Record E5 focused cap notes | Recorded focused cap notes. |
+| E5 | `a82d9194` Record E5 benchmark blocker | Recorded focused-visible blocker artifact. |
+| E6 | `39e41511` Test OSC-9 progress governor precedence | Added composed governor progress tests. |
+| E6 | `c3897cd5` Record E6 progress evidence | Recorded retained calibration and blocked focused-visible evidence. |
+| E6 | `db3dbec4` Test OSC-9 stale removal cleanup | Added stale-removal cleanup coverage. |
+
+Earlier branch setup commits that support this evidence are `374376e9`, `48758155`, `c43fa9d0`, `dc1d6451`, `2242143a`, `6ec3ea8c`, `f09990a1`, `95fa5037`, `e8faee21`, and `a613b3bb`.
+
+### Artifact ledger
+
+| Stage | Artifact | Result |
+| --- | --- | --- |
+| E0 | `/var/folders/db/wnztnt0d0zb87jdhxp6t_vc80000gn/T/supacode-energy-proof-smoke-e0-20260710013129` | Valid proof rows with `workload`, `state`, and `render_stats_proof=true`. |
+| E1 | `/var/folders/db/wnztnt0d0zb87jdhxp6t_vc80000gn/T/supacode-energy-e1-background-progress-smoke-final` | `progress-only` background-unfocused appkit-proxy reduction: `80.97%`. |
+| E2 | `/var/folders/db/wnztnt0d0zb87jdhxp6t_vc80000gn/T/supacode-energy-e2-hidden-smoke-final` | Hidden steady committed proxy intervals near `0.99` baseline fps and `0.97` Low Energy fps. |
+| E3 | `/var/folders/db/wnztnt0d0zb87jdhxp6t_vc80000gn/T/supacode-energy-e3-idle-spinner-smoke-final` | `spinner-status` appkit-proxy reduction: `0.00%`; native renderer wakeups bypass Swift proxy counters. |
+| E4 | `/var/folders/db/wnztnt0d0zb87jdhxp6t_vc80000gn/T/supacode-energy-e4-focused-progress-smoke-contract-postbuild-20260710043019` | Failed nonnumeric focused-visible artifact: header-only CSV, empty JSONL, failed report. |
+| E5 | `/var/folders/db/wnztnt0d0zb87jdhxp6t_vc80000gn/T/supacode-energy-e5-focused-progress-smoke-202607100453` | Failed nonnumeric focused-visible artifact: header-only CSV, empty JSONL, failed report. |
+| E6 | `/var/folders/db/wnztnt0d0zb87jdhxp6t_vc80000gn/T/supacode-energy-e6-focused-progress-smoke-202607100510` | Failed nonnumeric focused-visible artifact: header-only CSV, empty JSONL, failed report. |
+| E7 | `/var/folders/db/wnztnt0d0zb87jdhxp6t_vc80000gn/T/supacode-energy-e7-final-cumulative-focused-visible-20260710052926` | Failed nonnumeric final focused-visible artifact: `summary.csv` header only, `summary.jsonl` empty, `report.md` reports unavailable CPU/proxy metrics. |
+
+### Final verification evidence
+
+Commands run in order on 2026-07-10:
+
+```bash
+scripts/test-energy-benchmark.sh
+make test
+make build-app
+```
+
+Outcomes:
+
+- `scripts/test-energy-benchmark.sh`: passed syntax, workload smoke, dry-run, stale-report, unsupported-workload, and render-stats-off checks.
+- `make test`: passed `2251` tests in `150` suites with `11` known issues; result bundle `/Users/sethwebster/Library/Developer/Xcode/DerivedData/supacode-cfeclnaplfuzuecakbwrryychanq/Logs/Test/Test-supacode-2026.07.10_05-23-51-+0200.xcresult`.
+- `make build-app`: passed and produced the Debug app at `/Users/sethwebster/Library/Developer/Xcode/DerivedData/supacode-cfeclnaplfuzuecakbwrryychanq/Build/Products/Debug/supacode.app`.
+
+### Exact limiting factors
+
+- Focused-visible benchmark automation cannot make the launched development app frontmost before sampling, so E4/E5/E6/E7 focused-visible runs stop before baseline/low-energy rows are written.
+- `appkit_proxy` counters cover Swift/AppKit bridge proxy requests and committed proxy frames, not true Metal present frames or native Ghostty renderer thread wakeups.
+- E3's spinner workload confirms this limitation: idle quiet state was reached, but appkit-proxy reduction stayed `0.00%` because the workload's native renderer churn is outside the Swift proxy accounting path.
+- The machine-readable contract remains strict: no success report is valid without matching baseline and final CSV/JSONL rows for every requested mode and repeat.
