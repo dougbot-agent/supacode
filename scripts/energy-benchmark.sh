@@ -42,7 +42,10 @@ launch_env_active=false
 summary_csv=""
 summary_jsonl=""
 report_path=""
+comparison_csv=""
+comparison_jsonl=""
 report_completed=false
+active_keepalive_pid=""
 
 usage() {
   cat <<'EOF'
@@ -64,6 +67,7 @@ Options:
   --modes LIST                     Comma-separated modes. Defaults to baseline,low-energy
   --workload NAME                   Workload variant: mixed, progress-only, spinner-status, stream-only
   --state NAME                      Benchmark state metadata. Defaults to focused-visible
+                                    focused-active keeps the terminal interactive during sampling
   --powermetrics auto|off|on       Defaults to auto; auto skips without prompting if unavailable
   --render-stats on|off             Defaults to on; off fails because E0 requires counter proof
   --use-persisted-setting          Fail clearly; env-flag path is the safe supported path
@@ -276,6 +280,13 @@ workload_uses_progress_reports() {
 benchmark_state_applies_before_workload() {
   case "${workload_state}" in
     occluded-hidden) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+benchmark_state_uses_active_keepalive() {
+  case "${workload_state}" in
+    focused-active) return 0 ;;
     *) return 1 ;;
   esac
 }
@@ -563,10 +574,35 @@ EOF
         printf 'state=occluded-hidden limitation=unable_to_force_minimized_headlessly\n' >>"${state_log}"
       fi
       ;;
+    focused-active)
+      printf 'state=focused-active action=activate_started_app_and_keep_terminal_interactive\n' >>"${state_log}"
+      activate_started_app >>"${state_log}" 2>&1
+      ;;
     *)
       printf 'state=%s action=metadata_only\n' "${workload_state}" >>"${state_log}"
       ;;
   esac
+}
+
+start_active_keepalive() {
+  benchmark_state_uses_active_keepalive || return 0
+  keepalive_log="${current_run_dir}/active-keepalive.log"
+  printf 'state=%s interval_s=0.25 input=control-u\n' "${workload_state}" >"${keepalive_log}"
+  (
+    while true; do
+      run_cli surface focus --worktree "${worktree_id}" --tab "${created_tab_id}" --surface "${created_tab_id}" --input $'\025' >>"${keepalive_log}" 2>&1 || true
+      sleep 0.25
+    done
+  ) &
+  active_keepalive_pid=$!
+}
+
+stop_active_keepalive() {
+  if [ -n "${active_keepalive_pid}" ]; then
+    kill "${active_keepalive_pid}" >/dev/null 2>&1 || true
+    wait "${active_keepalive_pid}" >/dev/null 2>&1 || true
+    active_keepalive_pid=""
+  fi
 }
 
 stop_started_app() {
@@ -592,6 +628,7 @@ cleanup() {
     write_failed_report
   fi
   if [ -n "${created_tab_id}" ] && [ -n "${worktree_id}" ] && [ -x "${cli_path}" ]; then
+    stop_active_keepalive
     run_cli tab close --worktree "${worktree_id}" --tab "${created_tab_id}" >/dev/null 2>&1 || true
   fi
   stop_started_app
@@ -622,6 +659,12 @@ write_failed_report() {
 - Low-energy mean CPU: unavailable
 - Mean CPU reduction: unavailable%
 - 75% target: unavailable
+- Baseline committed appkit proxies/s: unavailable
+- Low-energy committed appkit proxies/s: unavailable
+- Direct committed appkit proxy reduction: unavailable%
+- Direct committed proxy target: unavailable
+- Comparison CSV: unavailable
+- Comparison JSONL: unavailable
 - Mean appkit proxy frame reduction vs requests: unavailable%
 - $(frame_target_percent)% appkit proxy target: unavailable
 - Counter scope: appkit_proxy committed frame proxies, not true Metal present frames
@@ -766,6 +809,12 @@ proxy_reduction_percent() {
   awk -v requests="${requests_mean}" -v commits="${commits_mean}" 'BEGIN { if (requests > 0) printf "%.2f", ((requests - commits) / requests) * 100 }'
 }
 
+direct_reduction_percent() {
+  baseline_value="$1"
+  low_energy_value="$2"
+  awk -v baseline="${baseline_value}" -v low_energy="${low_energy_value}" 'BEGIN { if (baseline > 0) printf "%.2f", ((baseline - low_energy) / baseline) * 100 }'
+}
+
 mode_count() {
   old_ifs="${IFS}"
   IFS=','
@@ -823,6 +872,13 @@ frame_target_percent() {
   esac
 }
 
+direct_frame_target_percent() {
+  case "${workload_name}:${workload_state}" in
+    progress-only:focused-active | mixed:focused-active | spinner-status:focused-active | stream-only:focused-active) printf '50' ;;
+    *) printf '' ;;
+  esac
+}
+
 render_stats_proof_seen() {
   render_log_path="$1"
   app_log_path="$2"
@@ -863,6 +919,7 @@ run_workload_tab() {
 close_workload_tab() {
   if [ -n "${created_tab_id}" ] && [ -n "${worktree_id}" ]; then
     note "Closing tab ${created_tab_id}"
+    stop_active_keepalive
     run_cli tab close --worktree "${worktree_id}" --tab "${created_tab_id}" >/dev/null 2>&1 || true
     created_tab_id=""
     session_id=""
@@ -900,9 +957,13 @@ initialize_output_files() {
   summary_csv="${output_dir}/summary.csv"
   summary_jsonl="${output_dir}/summary.jsonl"
   report_path="${output_dir}/report.md"
+  comparison_csv="${output_dir}/comparison.csv"
+  comparison_jsonl="${output_dir}/comparison.jsonl"
   rm -f "${report_path}"
   printf 'mode,workload,state,run,mean_cpu,render_stats_count,render_stats_proof,powermetrics_collected,presentation_requests_per_s,committed_frame_proxies_per_s,coalesced_frame_proxies_per_s,proxy_reduction_percent,run_dir\n' >"${summary_csv}"
   : >"${summary_jsonl}"
+  printf 'workload,state,baseline_mean_cpu,low_energy_mean_cpu,direct_cpu_reduction_percent,baseline_committed_frame_proxies_per_s,low_energy_committed_frame_proxies_per_s,direct_committed_proxy_reduction_percent,direct_committed_proxy_target_percent,direct_committed_proxy_target_status,baseline_presentation_requests_per_s,low_energy_presentation_requests_per_s\n' >"${comparison_csv}"
+  : >"${comparison_jsonl}"
 }
 
 dry_run_plan() {
@@ -921,10 +982,13 @@ modes: ${modes}
 powermetrics: ${powermetrics_mode}
 workload: ${workload_name}
 state: ${workload_state}
+state behavior: focused-active keeps the terminal interactive during sampling; other states do not send active keepalive
 workload command: ${workload_command}
 summary csv: ${output_dir}/summary.csv
 summary jsonl: ${output_dir}/summary.jsonl
 report: ${output_dir}/report.md
+comparison csv: ${output_dir}/comparison.csv
+comparison jsonl: ${output_dir}/comparison.jsonl
 EOF
 
   old_ifs="${IFS}"
@@ -941,6 +1005,7 @@ mode ${mode} run ${run_index} launch app bundle with LaunchServices: ${app_path}
 mode ${mode} run ${run_index} socket binding: launch dev app, detect new socket, set SUPACODE_SOCKET_PATH=<new-socket> for CLI calls
 mode ${mode} run ${run_index} visibility: require launched dev app window count > 0 and frontmost before sampling
 mode ${mode} run ${run_index} benchmark state action: apply ${workload_state} before sampling
+mode ${mode} run ${run_index} active keepalive: focused-active sends control-u through surface focus every 0.25s
 mode ${mode} run ${run_index} repo open action: ${cli_path} repo open ${target_repo}
 mode ${mode} run ${run_index} worktree target: percent-encoded ${target_repo}/
 mode ${mode} run ${run_index} tab open action: ${cli_path} tab new --worktree <focused-worktree> --id <uuidgen> --input '<newline>'
@@ -1001,6 +1066,7 @@ for mode in ${modes}; do
     if ! benchmark_state_applies_before_workload; then
       apply_benchmark_state
     fi
+    start_active_keepalive
     start_top_collector "${started_pid}" "${current_run_dir}/top.log" "${current_run_dir}/cpu.csv"
     start_powermetrics_collector "${current_run_dir}/powermetrics.log"
     sleep "${duration_seconds}"
@@ -1050,6 +1116,10 @@ validate_summary_contract
 
 baseline_mean="$(awk -F, '$1 == "baseline" && $5 != "" { sum += $5; count++ } END { if (count > 0) printf "%.4f", sum / count }' "${summary_csv}")"
 low_energy_mean="$(awk -F, '$1 == "low-energy" && $5 != "" { sum += $5; count++ } END { if (count > 0) printf "%.4f", sum / count }' "${summary_csv}")"
+baseline_committed_mean="$(awk -F, '$1 == "baseline" && $10 != "" { sum += $10; count++ } END { if (count > 0) printf "%.4f", sum / count }' "${summary_csv}")"
+low_energy_committed_mean="$(awk -F, '$1 == "low-energy" && $10 != "" { sum += $10; count++ } END { if (count > 0) printf "%.4f", sum / count }' "${summary_csv}")"
+baseline_presentation_mean="$(awk -F, '$1 == "baseline" && $9 != "" { sum += $9; count++ } END { if (count > 0) printf "%.4f", sum / count }' "${summary_csv}")"
+low_energy_presentation_mean="$(awk -F, '$1 == "low-energy" && $9 != "" { sum += $9; count++ } END { if (count > 0) printf "%.4f", sum / count }' "${summary_csv}")"
 reduction=""
 target_status="unavailable"
 if [ -n "${baseline_mean}" ] && [ -n "${low_energy_mean}" ]; then
@@ -1058,6 +1128,20 @@ if [ -n "${baseline_mean}" ] && [ -n "${low_energy_mean}" ]; then
     target_status="passed"
   else
     target_status="failed"
+  fi
+fi
+
+direct_frame_reduction=""
+direct_frame_target_percent_value="$(direct_frame_target_percent)"
+direct_frame_target_status="unavailable"
+if [ -n "${baseline_committed_mean}" ] && [ -n "${low_energy_committed_mean}" ]; then
+  direct_frame_reduction="$(direct_reduction_percent "${baseline_committed_mean}" "${low_energy_committed_mean}")"
+  if [ -n "${direct_frame_target_percent_value}" ]; then
+    if [ -n "${direct_frame_reduction}" ] && awk -v value="${direct_frame_reduction}" -v target="${direct_frame_target_percent_value}" 'BEGIN { exit !(value >= target) }'; then
+      direct_frame_target_status="passed"
+    else
+      direct_frame_target_status="failed"
+    fi
   fi
 fi
 
@@ -1072,6 +1156,15 @@ if [ -n "${frame_reduction_mean}" ]; then
   fi
 fi
 
+printf '%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n' "${workload_name}" "${workload_state}" "${baseline_mean}" "${low_energy_mean}" "${reduction}" "${baseline_committed_mean}" "${low_energy_committed_mean}" "${direct_frame_reduction}" "${direct_frame_target_percent_value}" "${direct_frame_target_status}" "${baseline_presentation_mean}" "${low_energy_presentation_mean}" >>"${comparison_csv}"
+printf '{"workload":"%s","state":"%s","baseline_mean_cpu":%s,"low_energy_mean_cpu":%s,"direct_cpu_reduction_percent":%s,"baseline_committed_frame_proxies_per_s":%s,"low_energy_committed_frame_proxies_per_s":%s,"direct_committed_proxy_reduction_percent":%s,"direct_committed_proxy_target_percent":%s,"direct_committed_proxy_target_status":"%s","baseline_presentation_requests_per_s":%s,"low_energy_presentation_requests_per_s":%s}\n' \
+  "${workload_name}" "${workload_state}" "${baseline_mean:-null}" "${low_energy_mean:-null}" "${reduction:-null}" "${baseline_committed_mean:-null}" "${low_energy_committed_mean:-null}" "${direct_frame_reduction:-null}" "${direct_frame_target_percent_value:-null}" "${direct_frame_target_status}" "${baseline_presentation_mean:-null}" "${low_energy_presentation_mean:-null}" >>"${comparison_jsonl}"
+
+direct_frame_target_label="unavailable"
+if [ -n "${direct_frame_target_percent_value}" ]; then
+  direct_frame_target_label="${direct_frame_target_percent_value}%"
+fi
+
 cat >"${report_path}" <<EOF
 # Supacode Energy Benchmark
 
@@ -1082,9 +1175,15 @@ cat >"${report_path}" <<EOF
 - Low-energy mean CPU: ${low_energy_mean:-unavailable}
 - Mean CPU reduction: ${reduction:-unavailable}%
 - 75% target: ${target_status}
+- Baseline committed appkit proxies/s: ${baseline_committed_mean:-unavailable}
+- Low-energy committed appkit proxies/s: ${low_energy_committed_mean:-unavailable}
+- Direct committed appkit proxy reduction: ${direct_frame_reduction:-unavailable}%
+- Direct committed proxy target (${direct_frame_target_label}): ${direct_frame_target_status}
 - Mean appkit proxy frame reduction vs requests: ${frame_reduction_mean:-unavailable}%
 - ${frame_target_percent_value}% appkit proxy target: ${frame_target_status}
 - Counter scope: appkit_proxy committed frame proxies, not true Metal present frames
+- Comparison CSV: ${comparison_csv}
+- Comparison JSONL: ${comparison_jsonl}
 
 Raw logs are preserved in each per-run directory.
 EOF
