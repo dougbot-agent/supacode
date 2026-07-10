@@ -379,7 +379,16 @@ struct GhosttySurfaceBridgeTests {
     #expect(
       TerminalEnergyConfiguration.progressThrottleMilliseconds(
         environment: ["SUPACODE_ENERGY_MODE": "1"]
-      ) == 250
+      ) == 100
+    )
+  }
+
+  @Test func energyConfigurationUsesEnergyModeFocusedFrameCap() {
+    #expect(TerminalEnergyConfiguration.focusedFrameCapMilliseconds(environment: [:]) == nil)
+    #expect(
+      TerminalEnergyConfiguration.focusedFrameCapMilliseconds(
+        environment: ["SUPACODE_ENERGY_MODE": "1"]
+      ) == 100
     )
   }
 
@@ -389,7 +398,7 @@ struct GhosttySurfaceBridgeTests {
       TerminalEnergyConfiguration.progressThrottleMilliseconds(
         environment: [:],
         lowEnergyModeSetting: true
-      ) == 250
+      ) == TerminalEnergyConfiguration.energyModeFocusedFrameCapMs
     )
     // Off by default keeps the snappy cadence.
     #expect(
@@ -406,6 +415,44 @@ struct GhosttySurfaceBridgeTests {
       TerminalEnergyConfiguration.progressThrottleMilliseconds(
         environment: ["SUPACODE_PROGRESS_THROTTLE_MS": "125"],
         lowEnergyModeSetting: true
+      ) == 125
+    )
+  }
+
+  @Test func energyConfigurationFocusedCapSettingAndEnvironmentConverge() {
+    #expect(
+      TerminalEnergyConfiguration.focusedFrameCapMilliseconds(
+        environment: [:],
+        lowEnergyModeSetting: true
+      ) == TerminalEnergyConfiguration.energyModeFocusedFrameCapMs
+    )
+    #expect(
+      TerminalEnergyConfiguration.focusedFrameCapMilliseconds(
+        environment: ["SUPACODE_ENERGY_MODE": "1"],
+        lowEnergyModeSetting: false
+      ) == TerminalEnergyConfiguration.energyModeFocusedFrameCapMs
+    )
+  }
+
+  @Test func energyConfigurationExplicitFocusedCapOverridesLowEnergyMode() {
+    #expect(
+      TerminalEnergyConfiguration.focusedFrameCapMilliseconds(
+        environment: [
+          "SUPACODE_ENERGY_MODE": "1",
+          "SUPACODE_FOCUSED_FRAME_CAP_MS": "125",
+        ],
+        lowEnergyModeSetting: true
+      ) == 125
+    )
+  }
+
+  @Test func energyConfigurationProgressOverrideCarriesFocusedCapForBenchmarks() {
+    #expect(
+      TerminalEnergyConfiguration.focusedFrameCapMilliseconds(
+        environment: [
+          "SUPACODE_ENERGY_MODE": "1",
+          "SUPACODE_PROGRESS_THROTTLE_MS": "125",
+        ]
       ) == 125
     )
   }
@@ -617,6 +664,34 @@ struct GhosttySurfaceBridgeTests {
     #expect(line.contains("governor_state=focused_idle_quiet_governor"))
     #expect(line.contains("idle_state=idle_quiet"))
     #expect(line.contains("quiet_duration_ms=750"))
+  }
+
+  @Test func energyDiagnosticsSummaryReportsFocusedLowEnergyCap() {
+    let line = TerminalEnergyDiagnostics.summaryLine(
+      seconds: 1,
+      actions: 0,
+      presentationRequests: 20,
+      committedFrameProxies: 10,
+      coalescedFrameProxies: 10,
+      progressReports: 20,
+      progressApplies: 10,
+      progressRemovals: 0,
+      terminalInputBytes: 0,
+      scrollCommits: 0,
+      sizeUpdates: 0,
+      layoutPasses: 0,
+      workloadName: "progress-only",
+      workloadState: "focused-visible",
+      focusState: "focused",
+      occlusionState: "visible",
+      governorState: "focused_low_energy_cap",
+      capState: "active",
+      capFPS: "10.00"
+    )
+
+    #expect(line.contains("governor_state=focused_low_energy_cap"))
+    #expect(line.contains("cap_state=active"))
+    #expect(line.contains("cap_fps=10.00"))
   }
 
   @Test func unfocusedProgressBurstCapsCommittedFrameProxies() async {
@@ -835,6 +910,54 @@ struct GhosttySurfaceBridgeTests {
     #expect(committedFrameProxies > 4)
   }
 
+  @Test func focusedLowEnergyProgressUsesFocusedCapCadence() async {
+    let clock = TestClock()
+    let rawRequests = 100
+    let bridge = GhosttySurfaceBridge(
+      clock: clock,
+      progressThrottleInterval: .milliseconds(50),
+      focusedFrameCapInterval: .milliseconds(TerminalEnergyConfiguration.energyModeFocusedFrameCapMs),
+      progressIdleInterval: .seconds(60),
+      progressStaleTimeout: .seconds(600)
+    )
+    var committedFrameProxies = 0
+    bridge.onProgressReport = { state in
+      if state != GHOSTTY_PROGRESS_STATE_REMOVE { committedFrameProxies += 1 }
+    }
+
+    for value in 0..<rawRequests {
+      bridge.ingestProgressReport(state: GHOSTTY_PROGRESS_STATE_SET, value: value % 101)
+      await clock.advance(by: .milliseconds(20))
+    }
+
+    let capFramesForWindow = 1 + Int(
+      ceil(Double(rawRequests * 20) / Double(TerminalEnergyConfiguration.energyModeFocusedFrameCapMs))
+    )
+    #expect(committedFrameProxies <= capFramesForWindow)
+    let reduction = Double(rawRequests - committedFrameProxies) / Double(rawRequests)
+    #expect(reduction >= 0.50)
+  }
+
+  @Test func focusedLowEnergyInputBypassesFocusedCapAndFlushesLatestProgress() {
+    let bridge = GhosttySurfaceBridge(
+      clock: TestClock(),
+      progressThrottleInterval: .milliseconds(50),
+      focusedFrameCapInterval: .milliseconds(TerminalEnergyConfiguration.energyModeFocusedFrameCapMs),
+      progressStaleTimeout: .seconds(600)
+    )
+    var appliedValues: [Int?] = []
+    bridge.onProgressReport = { state in
+      if state != GHOSTTY_PROGRESS_STATE_REMOVE { appliedValues.append(bridge.state.progressValue) }
+    }
+
+    bridge.ingestProgressReport(state: GHOSTTY_PROGRESS_STATE_SET, value: 10)
+    bridge.ingestProgressReport(state: GHOSTTY_PROGRESS_STATE_SET, value: 80)
+    bridge.noteUserInteraction(reason: "terminal_input")
+
+    #expect(bridge.state.progressValue == 80)
+    #expect(appliedValues == [10, 80])
+  }
+
   @Test func focusedIdleRenderRequestsUseQuietCapAfterThreshold() async {
     let clock = TestClock()
     let bridge = GhosttySurfaceBridge(
@@ -856,6 +979,29 @@ struct GhosttySurfaceBridgeTests {
 
     let reduction = Double(100 - committedFrameProxies) / 100.0
     #expect(reduction >= 0.40)
+  }
+
+  @Test func idleQuietOutranksFocusedLowEnergyCap() async {
+    let clock = TestClock()
+    let bridge = GhosttySurfaceBridge(
+      clock: clock,
+      progressThrottleInterval: .milliseconds(50),
+      focusedFrameCapInterval: .milliseconds(100),
+      idleQuietThreshold: .milliseconds(500),
+      idleQuietFrameCapInterval: .milliseconds(250),
+      progressStaleTimeout: .seconds(600)
+    )
+    var committedFrameProxies = 0
+    bridge.onRenderProxyCommit = { committedFrameProxies += 1 }
+
+    await clock.advance(by: .milliseconds(500))
+    #expect(bridge.idleQuietStateForTesting == .idleQuiet)
+    for _ in 0..<100 {
+      bridge.ingestRenderRequest(reason: "render")
+      await clock.advance(by: .milliseconds(20))
+    }
+
+    #expect(committedFrameProxies <= 10)
   }
 
   @Test func interactionExitsQuietAndFlushesLatestRenderProxy() async {

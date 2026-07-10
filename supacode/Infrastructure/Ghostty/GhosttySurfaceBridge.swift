@@ -81,6 +81,8 @@ final class GhosttySurfaceBridge {
   // reports stopped without a REMOVE.
   private let clock: any Clock<Duration>
   private let progressThrottleInterval: Duration
+  private let focusedFrameCapInterval: Duration?
+  private let focusedFrameCapMilliseconds: Int?
   private let unfocusedFrameCapInterval: Duration
   private let unfocusedFrameCapMilliseconds: Int
   private let idleQuietEnabled: Bool
@@ -107,6 +109,7 @@ final class GhosttySurfaceBridge {
   init(
     clock: any Clock<Duration> = ContinuousClock(),
     progressThrottleInterval: Duration? = nil,
+    focusedFrameCapInterval: Duration? = nil,
     unfocusedFrameCapInterval: Duration? = nil,
     idleQuietThreshold: Duration? = nil,
     idleQuietFrameCapInterval: Duration? = nil,
@@ -126,6 +129,17 @@ final class GhosttySurfaceBridge {
       TerminalEnergyDiagnostics.shared.recordConfiguredProgressThrottle(
         milliseconds: progressThrottleMilliseconds
       )
+    }
+    if let focusedFrameCapInterval {
+      self.focusedFrameCapInterval = focusedFrameCapInterval
+      self.focusedFrameCapMilliseconds = Self.durationMilliseconds(focusedFrameCapInterval)
+    } else {
+      @Shared(.settingsFile) var settingsFile
+      let capMilliseconds = TerminalEnergyConfiguration.focusedFrameCapMilliseconds(
+        lowEnergyModeSetting: settingsFile.global.lowEnergyModeEnabled
+      )
+      self.focusedFrameCapInterval = capMilliseconds.map { .milliseconds($0) }
+      self.focusedFrameCapMilliseconds = capMilliseconds
     }
     if let unfocusedFrameCapInterval {
       self.unfocusedFrameCapInterval = unfocusedFrameCapInterval
@@ -159,6 +173,11 @@ final class GhosttySurfaceBridge {
     TerminalEnergyDiagnostics.shared.recordConfiguredUnfocusedFrameCap(
       milliseconds: unfocusedFrameCapMilliseconds
     )
+    if let focusedFrameCapMilliseconds {
+      TerminalEnergyDiagnostics.shared.recordConfiguredFocusedFrameCap(
+        milliseconds: focusedFrameCapMilliseconds
+      )
+    }
     if let idleQuietFrameCapMilliseconds {
       TerminalEnergyDiagnostics.shared.recordConfiguredIdleQuietGovernor(
         thresholdMilliseconds: idleQuietThresholdMilliseconds,
@@ -170,7 +189,8 @@ final class GhosttySurfaceBridge {
       suspendState: presentationSuspendState,
       capMilliseconds: unfocusedFrameCapMilliseconds,
       idleState: idleQuietState,
-      quietCapMilliseconds: idleQuietFrameCapMilliseconds
+      quietCapMilliseconds: idleQuietFrameCapMilliseconds,
+      focusedCapMilliseconds: focusedFrameCapMilliseconds
     )
     self.progressIdleInterval = progressIdleInterval
     self.progressStaleTimeout = progressStaleTimeout
@@ -562,6 +582,7 @@ final class GhosttySurfaceBridge {
     if idleQuietState == .idleQuiet, idleQuietFrameCapMilliseconds != nil {
       return idleQuietFrameCapInterval
     }
+    if let focusedFrameCapInterval { return focusedFrameCapInterval }
     return progressThrottleInterval
   }
 
@@ -656,7 +677,8 @@ final class GhosttySurfaceBridge {
       suspendState: presentationSuspendState,
       capMilliseconds: unfocusedFrameCapMilliseconds,
       idleState: idleQuietState,
-      quietCapMilliseconds: idleQuietFrameCapMilliseconds
+      quietCapMilliseconds: idleQuietFrameCapMilliseconds,
+      focusedCapMilliseconds: focusedFrameCapMilliseconds
     )
   }
 

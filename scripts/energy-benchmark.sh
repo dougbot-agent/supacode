@@ -740,6 +740,7 @@ proxy_reduction_percent() {
 
 frame_target_percent() {
   case "${workload_name}:${workload_state}" in
+    progress-only:focused-visible) printf '50' ;;
     spinner-status:focused-visible) printf '40' ;;
     *) printf '70' ;;
   esac
@@ -999,6 +1000,7 @@ cat >"${report_path}" <<EOF
 - 75% target: ${target_status}
 - Mean appkit proxy frame reduction vs requests: ${frame_reduction_mean:-unavailable}%
 - ${frame_target_percent_value}% appkit proxy target: ${frame_target_status}
+- Counter scope: appkit_proxy committed frame proxies, not true Metal present frames
 
 Raw logs are preserved in each per-run directory.
 EOF

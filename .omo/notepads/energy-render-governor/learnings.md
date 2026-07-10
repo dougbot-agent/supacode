@@ -23,3 +23,8 @@
 - E3 adds a focused idle quiet state for bridge-level render proxy requests: `SUPACODE_ENERGY_MODE=1` enables `idle_quiet_threshold_ms=500` and `idle_quiet_frame_cap_ms=250`, while baseline keeps focused passthrough.
 - Unit coverage proves no quiet mode before the idle threshold, quiet coalescing after the threshold, immediate interaction exit/flush, and E2/E1 precedence over idle quiet.
 - Focused `spinner-status` runtime evidence entered `focused_idle_quiet_governor`, but the workload did not emit high-frequency Swift bridge render proxy requests; native Ghostty renderer wakeups bypass the current `appkit_proxy` counter path.
+
+## 2026-07-10 Task: E4 focused Low Energy cap
+- E4 makes the Low Energy Mode focused interactive bridge cap explicit at `focused_low_energy_frame_cap_ms=100` (10fps) through the same persisted setting / `SUPACODE_ENERGY_MODE=1` gate; `SUPACODE_PROGRESS_THROTTLE_MS` still carries the focused cap for benchmark overrides unless `SUPACODE_FOCUSED_FRAME_CAP_MS` is set.
+- Focused Low Energy is a lower-precedence bridge cadence than hidden suspend, background/unfocused cap, and E3 idle quiet; TestClock coverage proves focused cadence, setting/env convergence, interaction flush, and idle quiet precedence.
+- Focused `progress-only` evidence artifact: `/var/folders/db/wnztnt0d0zb87jdhxp6t_vc80000gn/T/supacode-energy-e4-focused-progress-smoke-final`; report shows `79.64%` mean appkit proxy frame reduction vs requests and passes the E4 50% appkit proxy target.

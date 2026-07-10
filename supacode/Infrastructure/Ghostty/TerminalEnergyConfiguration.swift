@@ -2,7 +2,8 @@ import Foundation
 
 nonisolated enum TerminalEnergyConfiguration {
   static let defaultProgressThrottleMs = 50
-  static let energyModeProgressThrottleMs = 250
+  static let energyModeFocusedFrameCapMs = 100
+  static let energyModeProgressThrottleMs = energyModeFocusedFrameCapMs
   static let defaultUnfocusedFrameCapMs = 250
   static let defaultIdleQuietThresholdMs = 500
   static let energyModeIdleQuietFrameCapMs = 250
@@ -40,12 +41,42 @@ nonisolated enum TerminalEnergyConfiguration {
     if let override = positiveInt("SUPACODE_PROGRESS_THROTTLE_MS", environment: environment) {
       return override
     }
+    if let focusedCap = focusedFrameCapMilliseconds(
+      environment: environment,
+      lowEnergyModeSetting: lowEnergyModeSetting
+    ) {
+      return focusedCap
+    }
+    return defaultProgressThrottleMs
+  }
+
+  static func focusedFrameCapInterval(
+    environment: [String: String] = ProcessInfo.processInfo.environment,
+    lowEnergyModeSetting: Bool = false
+  ) -> Duration? {
+    guard let milliseconds = focusedFrameCapMilliseconds(
+      environment: environment,
+      lowEnergyModeSetting: lowEnergyModeSetting
+    ) else { return nil }
+    return .milliseconds(milliseconds)
+  }
+
+  static func focusedFrameCapMilliseconds(
+    environment: [String: String] = ProcessInfo.processInfo.environment,
+    lowEnergyModeSetting: Bool = false
+  ) -> Int? {
+    if let override = positiveInt("SUPACODE_FOCUSED_FRAME_CAP_MS", environment: environment) {
+      return override
+    }
+    if let override = positiveInt("SUPACODE_PROGRESS_THROTTLE_MS", environment: environment) {
+      return override
+    }
     // Either the persisted user setting or the env override enables energy mode.
     // The env var stays for headless benchmarking; the setting is the shipping UI.
     if lowEnergyModeSetting || isEnabled("SUPACODE_ENERGY_MODE", environment: environment) {
-      return energyModeProgressThrottleMs
+      return energyModeFocusedFrameCapMs
     }
-    return defaultProgressThrottleMs
+    return nil
   }
 
   static func unfocusedFrameCapInterval(

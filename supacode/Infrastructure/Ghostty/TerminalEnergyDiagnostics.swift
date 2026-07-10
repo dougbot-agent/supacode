@@ -26,6 +26,7 @@ final class TerminalEnergyDiagnostics {
   private var summaryTask: Task<Void, Never>?
   private var lastSummaryTime = ContinuousClock.now
   private var configuredProgressThrottleMilliseconds: Int?
+  private var configuredFocusedFrameCapMilliseconds: Int?
   private var configuredUnfocusedFrameCapMilliseconds: Int?
   private var configuredIdleQuietGovernor: (thresholdMilliseconds: Int, capMilliseconds: Int)?
   private var workloadName: String
@@ -38,6 +39,7 @@ final class TerminalEnergyDiagnostics {
   private var suspendState = TerminalPresentationSuspendState.visible.rawValue
   private var idleState = TerminalIdleQuietState.inactive.rawValue
   private var quietBeganAt: ContinuousClock.Instant?
+  private var loggedGovernorSnapshot: String?
 
   private init(
     enabled: Bool = TerminalEnergyConfiguration.renderStatsEnabled(),
@@ -86,7 +88,8 @@ final class TerminalEnergyDiagnostics {
     suspendState: TerminalPresentationSuspendState = .visible,
     capMilliseconds: Int,
     idleState: TerminalIdleQuietState = .inactive,
-    quietCapMilliseconds: Int? = nil
+    quietCapMilliseconds: Int? = nil,
+    focusedCapMilliseconds: Int? = nil
   ) {
     guard enabled else { return }
     self.suspendState = suspendState.rawValue
@@ -100,23 +103,34 @@ final class TerminalEnergyDiagnostics {
       governorState = "hidden_presentation_suspend"
       capState = "suspended"
       capFPS = "0.00"
+      logGovernorStateIfNeeded()
       return
     }
     if focused, idleState == .idleQuiet, let quietCapMilliseconds {
       governorState = "focused_idle_quiet_governor"
       capState = "active"
       capFPS = Self.format(1_000 / Double(max(1, quietCapMilliseconds)))
+      logGovernorStateIfNeeded()
+      return
+    }
+    if focused, let focusedCapMilliseconds {
+      governorState = "focused_low_energy_cap"
+      capState = "active"
+      capFPS = Self.format(1_000 / Double(max(1, focusedCapMilliseconds)))
+      logGovernorStateIfNeeded()
       return
     }
     guard !focused else {
       governorState = "focused_passthrough"
       capState = "none"
       capFPS = "0.00"
+      logGovernorStateIfNeeded()
       return
     }
     governorState = "background_unfocused_cap"
     capState = "active"
     capFPS = Self.format(1_000 / Double(max(1, capMilliseconds)))
+    logGovernorStateIfNeeded()
   }
 
   func recordOcclusionState(visible: Bool) {
@@ -170,6 +184,13 @@ final class TerminalEnergyDiagnostics {
     guard configuredProgressThrottleMilliseconds != milliseconds else { return }
     configuredProgressThrottleMilliseconds = milliseconds
     log("render_stats: enabled progress_throttle_ms=\(milliseconds)")
+  }
+
+  func recordConfiguredFocusedFrameCap(milliseconds: Int) {
+    guard enabled else { return }
+    guard configuredFocusedFrameCapMilliseconds != milliseconds else { return }
+    configuredFocusedFrameCapMilliseconds = milliseconds
+    log("render_stats: enabled focused_low_energy_frame_cap_ms=\(milliseconds)")
   }
 
   func recordConfiguredUnfocusedFrameCap(milliseconds: Int) {
@@ -240,6 +261,13 @@ final class TerminalEnergyDiagnostics {
     guard let quietBeganAt else { return 0 }
     let elapsed = quietBeganAt.duration(to: now).components
     return max(0, Int(elapsed.seconds * 1_000 + elapsed.attoseconds / 1_000_000_000_000_000))
+  }
+
+  private func logGovernorStateIfNeeded() {
+    let snapshot = "governor_state=\(governorState) cap_state=\(capState) cap_fps=\(capFPS) suspend_state=\(suspendState) idle_state=\(idleState)"
+    guard loggedGovernorSnapshot != snapshot else { return }
+    loggedGovernorSnapshot = snapshot
+    log("render_stats: \(snapshot)")
   }
 
   private func log(_ message: String) {
