@@ -81,6 +81,8 @@ final class GhosttySurfaceBridge {
   // reports stopped without a REMOVE.
   private let clock: any Clock<Duration>
   private let progressThrottleInterval: Duration
+  private let unfocusedFrameCapInterval: Duration
+  private let unfocusedFrameCapMilliseconds: Int
   private let progressIdleInterval: Duration
   private let progressStaleTimeout: Duration
   private var pendingProgress: ProgressUpdate?
@@ -88,10 +90,12 @@ final class GhosttySurfaceBridge {
   private var progressReportCount = 0
   private var progressFlushTask: Task<Void, Never>?
   private var progressStaleTask: Task<Void, Never>?
+  private var focused = true
 
   init(
     clock: any Clock<Duration> = ContinuousClock(),
     progressThrottleInterval: Duration? = nil,
+    unfocusedFrameCapInterval: Duration? = nil,
     progressIdleInterval: Duration = .seconds(1),
     progressStaleTimeout: Duration = .seconds(15)
   ) {
@@ -109,6 +113,21 @@ final class GhosttySurfaceBridge {
         milliseconds: progressThrottleMilliseconds
       )
     }
+    if let unfocusedFrameCapInterval {
+      self.unfocusedFrameCapInterval = unfocusedFrameCapInterval
+      self.unfocusedFrameCapMilliseconds = Self.durationMilliseconds(unfocusedFrameCapInterval)
+    } else {
+      let capMilliseconds = TerminalEnergyConfiguration.unfocusedFrameCapMilliseconds()
+      self.unfocusedFrameCapInterval = .milliseconds(capMilliseconds)
+      self.unfocusedFrameCapMilliseconds = capMilliseconds
+    }
+    TerminalEnergyDiagnostics.shared.recordConfiguredUnfocusedFrameCap(
+      milliseconds: unfocusedFrameCapMilliseconds
+    )
+    TerminalEnergyDiagnostics.shared.recordRenderGovernorState(
+      focused: focused,
+      capMilliseconds: unfocusedFrameCapMilliseconds
+    )
     self.progressIdleInterval = progressIdleInterval
     self.progressStaleTimeout = progressStaleTimeout
   }
@@ -130,6 +149,25 @@ final class GhosttySurfaceBridge {
     let value: Int?
   }
 
+  func setFocused(_ focused: Bool) {
+    guard self.focused != focused else { return }
+    self.focused = focused
+    TerminalEnergyDiagnostics.shared.recordRenderGovernorState(
+      focused: focused,
+      capMilliseconds: unfocusedFrameCapMilliseconds
+    )
+    if focused {
+      flushPendingRenderProxy(reason: "focus_regain")
+    }
+  }
+
+  func flushPendingRenderProxy(reason: String) {
+    guard pendingProgress != nil else { return }
+    progressFlushTask?.cancel()
+    progressFlushTask = nil
+    applyPendingProgress(reason: reason)
+  }
+
   func handleAction(target: ghostty_target_s, action: ghostty_action_s) -> Bool {
     TerminalEnergyDiagnostics.shared.recordAction()
     if let handled = handleAppAction(action) { return handled }
@@ -148,6 +186,7 @@ final class GhosttySurfaceBridge {
 
   func sendText(_ text: String) {
     guard let surface else { return }
+    flushPendingRenderProxy(reason: "terminal_input")
     TerminalEnergyDiagnostics.shared.recordTerminalInput(bytes: text.lengthOfBytes(using: .utf8))
     text.withCString { ptr in
       ghostty_surface_text(surface, ptr, UInt(text.lengthOfBytes(using: .utf8)))
@@ -346,6 +385,7 @@ final class GhosttySurfaceBridge {
       let exitCode = info.exit_code == -1 ? nil : Int(info.exit_code)
       state.commandExitCode = exitCode
       state.commandDuration = info.duration
+      flushPendingRenderProxy(reason: "command_finished")
       onCommandFinished?(exitCode)
       return true
 
@@ -353,6 +393,7 @@ final class GhosttySurfaceBridge {
       let info = action.action.child_exited
       state.childExitCode = info.exit_code
       state.childExitTimeMs = info.timetime_ms
+      flushPendingRenderProxy(reason: "child_exited")
       onChildExited?(info.exit_code)
       return true
 
@@ -362,6 +403,7 @@ final class GhosttySurfaceBridge {
 
     case GHOSTTY_ACTION_RING_BELL:
       state.bellCount += 1
+      flushPendingRenderProxy(reason: "bell")
       return true
 
     default:
@@ -397,10 +439,10 @@ final class GhosttySurfaceBridge {
   /// throttle interval. Idles to nothing once the value stops moving.
   private func scheduleProgressFlush() {
     guard progressFlushTask == nil else { return }
-    applyPendingProgress()
+    applyPendingProgress(reason: "osc9_progress")
     progressFlushTask = Task { @MainActor [weak self] in
       guard let self else { return }
-      try? await self.clock.sleep(for: self.progressThrottleInterval)
+      try? await self.clock.sleep(for: self.currentRenderCadenceInterval)
       // Check cancellation before clearing the handle: a cancelled task (REMOVE
       // raced a reschedule) must not clobber the live task's handle.
       guard !Task.isCancelled else { return }
@@ -437,7 +479,11 @@ final class GhosttySurfaceBridge {
     }
   }
 
-  private func applyPendingProgress() {
+  private var currentRenderCadenceInterval: Duration {
+    focused ? progressThrottleInterval : unfocusedFrameCapInterval
+  }
+
+  private func applyPendingProgress(reason: String) {
     guard let pending = pendingProgress else { return }
     pendingProgress = nil
     guard pending != appliedProgress else { return }
@@ -669,6 +715,13 @@ final class GhosttySurfaceBridge {
     default:
       return "unknown"
     }
+  }
+
+  private static func durationMilliseconds(_ duration: Duration) -> Int {
+    let components = duration.components
+    let seconds = components.seconds * 1_000
+    let attoseconds = components.attoseconds / 1_000_000_000_000_000
+    return max(1, Int(seconds + attoseconds))
   }
 
   private func string(from pointer: UnsafePointer<CChar>?) -> String? {

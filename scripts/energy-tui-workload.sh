@@ -120,7 +120,6 @@ emit_progress_only_tick() {
   percent="$1"
   draw_progress "${percent}"
   emit_progress_report "${percent}"
-  printf '\n'
 }
 
 emit_spinner_status_tick() {

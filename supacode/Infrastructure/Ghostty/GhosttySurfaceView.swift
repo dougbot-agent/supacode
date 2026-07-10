@@ -333,6 +333,37 @@ final class GhosttySurfaceView: NSView, Identifiable {
       ) { [weak self] _ in
         Task { @MainActor [weak self] in
           self?.applyWindowBackgroundAppearance()
+          self?.refreshFocusFromAppKit()
+        }
+      })
+    notificationObservers.append(
+      center.addObserver(
+        forName: NSWindow.didResignKeyNotification,
+        object: window,
+        queue: .main
+      ) { [weak self] _ in
+        Task { @MainActor [weak self] in
+          self?.refreshFocusFromAppKit()
+        }
+      })
+    notificationObservers.append(
+      center.addObserver(
+        forName: NSApplication.didBecomeActiveNotification,
+        object: NSApp,
+        queue: .main
+      ) { [weak self] _ in
+        Task { @MainActor [weak self] in
+          self?.refreshFocusFromAppKit()
+        }
+      })
+    notificationObservers.append(
+      center.addObserver(
+        forName: NSApplication.didResignActiveNotification,
+        object: NSApp,
+        queue: .main
+      ) { [weak self] _ in
+        Task { @MainActor [weak self] in
+          self?.refreshFocusFromAppKit()
         }
       })
     notificationObservers.append(
@@ -369,6 +400,10 @@ final class GhosttySurfaceView: NSView, Identifiable {
     DispatchQueue.main.async { [weak self] in
       self?.viewDidChangeBackingProperties()
     }
+  }
+
+  private func refreshFocusFromAppKit() {
+    focusDidChange(NSApp.isActive && window?.isKeyWindow == true && window?.firstResponder === self)
   }
 
   private func clearNotificationObservers() {
@@ -513,6 +548,7 @@ final class GhosttySurfaceView: NSView, Identifiable {
     guard self.focused != focused else { return }
     self.focused = focused
     TerminalEnergyDiagnostics.shared.recordFocusState(focused)
+    bridge.setFocused(focused)
     if focused {
       bridge.state.bellCount = 0
     }
@@ -913,6 +949,7 @@ final class GhosttySurfaceView: NSView, Identifiable {
 
   func updateSurfaceSize(contentSize: CGSize? = nil) {
     guard let surface else { return }
+    bridge.flushPendingRenderProxy(reason: "resize")
     let backingSize = convertToBacking(contentSize ?? bounds.size)
     if backingSize == lastBackingSize {
       return
@@ -2016,6 +2053,7 @@ final class GhosttySurfaceScrollView: NSView {
 
   func updateScrollbar(total: UInt64, offset: UInt64, length: UInt64) {
     scrollbar = ScrollbarState(total: total, offset: offset, length: length)
+    surfaceView.bridge.flushPendingRenderProxy(reason: "scroll")
     TerminalEnergyDiagnostics.shared.recordScrollCommit()
     synchronizeScrollView()
   }

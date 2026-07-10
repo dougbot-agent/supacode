@@ -517,6 +517,32 @@ end tell
 EOF
 }
 
+apply_benchmark_state() {
+  state_log="${current_run_dir}/state-application.log"
+  case "${workload_state}" in
+    focused-visible)
+      printf 'state=focused-visible action=activate_started_app\n' >>"${state_log}"
+      activate_started_app >>"${state_log}" 2>&1
+      ;;
+    background-unfocused)
+      printf 'state=background-unfocused action=activate_finder_to_unfocus_supacode\n' >>"${state_log}"
+      if ! osascript <<EOF >>"${state_log}" 2>&1
+tell application "Finder" to activate
+tell application "System Events"
+  set appProcess to first process whose unix id is ${started_pid}
+  if frontmost of appProcess is true then error "Supacode remained frontmost after Finder activation"
+end tell
+EOF
+      then
+        printf 'state=background-unfocused limitation=unable_to_force_background_headlessly\n' >>"${state_log}"
+      fi
+      ;;
+    *)
+      printf 'state=%s action=metadata_only\n' "${workload_state}" >>"${state_log}"
+      ;;
+  esac
+}
+
 stop_started_app() {
   if [ -n "${started_pid}" ]; then
     if kill -0 "${started_pid}" >/dev/null 2>&1; then
@@ -668,6 +694,28 @@ metric_activity_seen() {
   ' "${render_log_path}" "${app_log_path}" 2>/dev/null
 }
 
+render_metric_mean() {
+  metric_name="$1"
+  render_log_path="$2"
+  app_log_path="$3"
+  awk -v metric="${metric_name}" '
+    index($0, metric "=") > 0 {
+      value = $0
+      sub("^.*" metric "=", "", value)
+      sub(/ .*$/, "", value)
+      sum += value + 0
+      count++
+    }
+    END { if (count > 0) printf "%.4f", sum / count }
+  ' "${render_log_path}" "${app_log_path}" 2>/dev/null
+}
+
+proxy_reduction_percent() {
+  requests_mean="$1"
+  commits_mean="$2"
+  awk -v requests="${requests_mean}" -v commits="${commits_mean}" 'BEGIN { if (requests > 0) printf "%.2f", ((requests - commits) / requests) * 100 }'
+}
+
 render_stats_proof_seen() {
   render_log_path="$1"
   app_log_path="$2"
@@ -713,7 +761,7 @@ close_workload_tab() {
 
 write_context() {
   mkdir -p "${output_dir}"
-  commit="$(git -C "${repo_root}" rev-parse --short HEAD 2>/dev/null || printf unknown)"
+  commit="$(GIT_MASTER=1 git -C "${repo_root}" rev-parse --short HEAD 2>/dev/null || printf unknown)"
   machine="$(sysctl -n hw.model 2>/dev/null || uname -m)"
   macos="$(sw_vers -productVersion 2>/dev/null || printf unknown) ($(sw_vers -buildVersion 2>/dev/null || printf unknown))"
   cat >"${output_dir}/context.txt" <<EOF
@@ -772,6 +820,7 @@ mode ${mode} run ${run_index} env: ${env_text}
 mode ${mode} run ${run_index} launch app bundle with LaunchServices: ${app_path}
 mode ${mode} run ${run_index} socket binding: launch dev app, detect new socket, set SUPACODE_SOCKET_PATH=<new-socket> for CLI calls
 mode ${mode} run ${run_index} visibility: require launched dev app window count > 0 and frontmost before sampling
+mode ${mode} run ${run_index} benchmark state action: apply ${workload_state} before sampling
 mode ${mode} run ${run_index} repo open action: ${cli_path} repo open ${target_repo}
 mode ${mode} run ${run_index} worktree target: percent-encoded ${target_repo}/
 mode ${mode} run ${run_index} tab open action: ${cli_path} tab new --worktree <focused-worktree> --id <uuidgen> --input '<newline>'
@@ -801,7 +850,7 @@ write_context
 summary_csv="${output_dir}/summary.csv"
 summary_jsonl="${output_dir}/summary.jsonl"
 report_path="${output_dir}/report.md"
-printf 'mode,workload,state,run,mean_cpu,render_stats_count,render_stats_proof,powermetrics_collected,run_dir\n' >"${summary_csv}"
+printf 'mode,workload,state,run,mean_cpu,render_stats_count,render_stats_proof,powermetrics_collected,presentation_requests_per_s,committed_frame_proxies_per_s,coalesced_frame_proxies_per_s,proxy_reduction_percent,run_dir\n' >"${summary_csv}"
 : >"${summary_jsonl}"
 
 old_ifs="${IFS}"
@@ -834,6 +883,7 @@ for mode in ${modes}; do
       wait_for "render stats proof counters from workload" \
         render_stats_proof_seen "${current_run_dir}/render-stats.log" "${current_run_dir}/app.log"
     fi
+    apply_benchmark_state
     start_top_collector "${started_pid}" "${current_run_dir}/top.log" "${current_run_dir}/cpu.csv"
     start_powermetrics_collector "${current_run_dir}/powermetrics.log"
     sleep "${duration_seconds}"
@@ -857,15 +907,19 @@ for mode in ${modes}; do
 
     mean_cpu="$(mean_cpu_from_csv "${current_run_dir}/cpu.csv")"
     render_count="$(render_stats_count "${current_run_dir}/render-stats.log" "${current_run_dir}/app.log")"
+    presentation_mean="$(render_metric_mean "presentation_requests_per_s" "${current_run_dir}/render-stats.log" "${current_run_dir}/app.log")"
+    committed_mean="$(render_metric_mean "committed_frame_proxies_per_s" "${current_run_dir}/render-stats.log" "${current_run_dir}/app.log")"
+    coalesced_mean="$(render_metric_mean "coalesced_frame_proxies_per_s" "${current_run_dir}/render-stats.log" "${current_run_dir}/app.log")"
+    proxy_reduction="$(proxy_reduction_percent "${presentation_mean:-0}" "${committed_mean:-0}")"
     powermetrics_collected=false
     if [ -s "${current_run_dir}/powermetrics.log" ] && ! grep -F -q 'powermetrics skipped:' "${current_run_dir}/powermetrics.log"; then
       powermetrics_collected=true
     fi
 
     render_stats_proof=true
-    printf '%s,%s,%s,%s,%s,%s,%s,%s,%s\n' "${mode}" "${workload_name}" "${workload_state}" "${run_index}" "${mean_cpu}" "${render_count}" "${render_stats_proof}" "${powermetrics_collected}" "${current_run_dir}" >>"${summary_csv}"
-    printf '{"mode":"%s","workload":"%s","state":"%s","run":%s,"mean_cpu":%s,"render_stats_count":%s,"render_stats_proof":%s,"powermetrics_collected":%s,"run_dir":"%s","env":[%s]}\n' \
-      "${mode}" "${workload_name}" "${workload_state}" "${run_index}" "${mean_cpu:-null}" "${render_count}" "${render_stats_proof}" "${powermetrics_collected}" "${current_run_dir}" "$(mode_json_env "${mode}")" >>"${summary_jsonl}"
+    printf '%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n' "${mode}" "${workload_name}" "${workload_state}" "${run_index}" "${mean_cpu}" "${render_count}" "${render_stats_proof}" "${powermetrics_collected}" "${presentation_mean}" "${committed_mean}" "${coalesced_mean}" "${proxy_reduction}" "${current_run_dir}" >>"${summary_csv}"
+    printf '{"mode":"%s","workload":"%s","state":"%s","run":%s,"mean_cpu":%s,"render_stats_count":%s,"render_stats_proof":%s,"powermetrics_collected":%s,"presentation_requests_per_s":%s,"committed_frame_proxies_per_s":%s,"coalesced_frame_proxies_per_s":%s,"proxy_reduction_percent":%s,"run_dir":"%s","env":[%s]}\n' \
+      "${mode}" "${workload_name}" "${workload_state}" "${run_index}" "${mean_cpu:-null}" "${render_count}" "${render_stats_proof}" "${powermetrics_collected}" "${presentation_mean:-null}" "${committed_mean:-null}" "${coalesced_mean:-null}" "${proxy_reduction:-null}" "${current_run_dir}" "$(mode_json_env "${mode}")" >>"${summary_jsonl}"
 
     stop_started_app
     clear_benchmark_socket_file
@@ -888,6 +942,16 @@ if [ -n "${baseline_mean}" ] && [ -n "${low_energy_mean}" ]; then
   fi
 fi
 
+frame_reduction_mean="$(awk -F, 'NR > 1 && $12 != "" { sum += $12; count++ } END { if (count > 0) printf "%.2f", sum / count }' "${summary_csv}")"
+frame_target_status="unavailable"
+if [ -n "${frame_reduction_mean}" ]; then
+  if awk -v value="${frame_reduction_mean}" 'BEGIN { exit !(value >= 70) }'; then
+    frame_target_status="passed"
+  else
+    frame_target_status="failed"
+  fi
+fi
+
 cat >"${report_path}" <<EOF
 # Supacode Energy Benchmark
 
@@ -898,6 +962,8 @@ cat >"${report_path}" <<EOF
 - Low-energy mean CPU: ${low_energy_mean:-unavailable}
 - Mean CPU reduction: ${reduction:-unavailable}%
 - 75% target: ${target_status}
+- Mean appkit proxy frame reduction vs requests: ${frame_reduction_mean:-unavailable}%
+- 70% appkit proxy target: ${frame_target_status}
 
 Raw logs are preserved in each per-run directory.
 EOF

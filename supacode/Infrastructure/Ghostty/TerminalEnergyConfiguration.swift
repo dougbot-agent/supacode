@@ -3,6 +3,7 @@ import Foundation
 nonisolated enum TerminalEnergyConfiguration {
   static let defaultProgressThrottleMs = 50
   static let energyModeProgressThrottleMs = 250
+  static let defaultUnfocusedFrameCapMs = 250
 
   static func isEnabled(
     _ name: String,
@@ -43,6 +44,19 @@ nonisolated enum TerminalEnergyConfiguration {
       return energyModeProgressThrottleMs
     }
     return defaultProgressThrottleMs
+  }
+
+  static func unfocusedFrameCapInterval(
+    environment: [String: String] = ProcessInfo.processInfo.environment
+  ) -> Duration {
+    .milliseconds(unfocusedFrameCapMilliseconds(environment: environment))
+  }
+
+  static func unfocusedFrameCapMilliseconds(
+    environment: [String: String] = ProcessInfo.processInfo.environment
+  ) -> Int {
+    positiveInt("SUPACODE_UNFOCUSED_FRAME_CAP_MS", environment: environment)
+      ?? defaultUnfocusedFrameCapMs
   }
 
   static func renderStatsEnabled(
