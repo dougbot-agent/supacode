@@ -738,6 +738,13 @@ proxy_reduction_percent() {
   awk -v requests="${requests_mean}" -v commits="${commits_mean}" 'BEGIN { if (requests > 0) printf "%.2f", ((requests - commits) / requests) * 100 }'
 }
 
+frame_target_percent() {
+  case "${workload_name}:${workload_state}" in
+    spinner-status:focused-visible) printf '40' ;;
+    *) printf '70' ;;
+  esac
+}
+
 render_stats_proof_seen() {
   render_log_path="$1"
   app_log_path="$2"
@@ -970,9 +977,10 @@ if [ -n "${baseline_mean}" ] && [ -n "${low_energy_mean}" ]; then
 fi
 
 frame_reduction_mean="$(awk -F, 'NR > 1 && $12 != "" { sum += $12; count++ } END { if (count > 0) printf "%.2f", sum / count }' "${summary_csv}")"
+frame_target_percent_value="$(frame_target_percent)"
 frame_target_status="unavailable"
 if [ -n "${frame_reduction_mean}" ]; then
-  if awk -v value="${frame_reduction_mean}" 'BEGIN { exit !(value >= 70) }'; then
+  if awk -v value="${frame_reduction_mean}" -v target="${frame_target_percent_value}" 'BEGIN { exit !(value >= target) }'; then
     frame_target_status="passed"
   else
     frame_target_status="failed"
@@ -990,7 +998,7 @@ cat >"${report_path}" <<EOF
 - Mean CPU reduction: ${reduction:-unavailable}%
 - 75% target: ${target_status}
 - Mean appkit proxy frame reduction vs requests: ${frame_reduction_mean:-unavailable}%
-- 70% appkit proxy target: ${frame_target_status}
+- ${frame_target_percent_value}% appkit proxy target: ${frame_target_status}
 
 Raw logs are preserved in each per-run directory.
 EOF

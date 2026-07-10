@@ -582,6 +582,7 @@ final class GhosttySurfaceView: NSView, Identifiable {
     bridge.setFocused(focused)
     if focused {
       bridge.state.bellCount = 0
+      bridge.noteUserInteraction(reason: "focus_interaction")
     }
     setSurfaceFocus(focused)
     onFocusChange?(focused)
@@ -727,6 +728,7 @@ final class GhosttySurfaceView: NSView, Identifiable {
       interpretKeyEvents([event])
       return
     }
+    bridge.noteUserInteraction(reason: "key_down")
     bridge.state.bellCount = 0
     let (translationEvent, translationMods) = translationState(event, surface: surface)
     let action = event.isARepeat ? GHOSTTY_ACTION_REPEAT : GHOSTTY_ACTION_PRESS
@@ -769,6 +771,7 @@ final class GhosttySurfaceView: NSView, Identifiable {
 
   override func keyUp(with event: NSEvent) {
     if suppressKeyboardLayoutChangeKeyUp(event) { return }
+    bridge.noteUserInteraction(reason: "key_up")
     sendKey(action: GHOSTTY_ACTION_RELEASE, event: event)
   }
 
@@ -782,6 +785,7 @@ final class GhosttySurfaceView: NSView, Identifiable {
     case 0x37, 0x36: mod = GHOSTTY_MODS_SUPER.rawValue
     default: return
     }
+    bridge.noteUserInteraction(reason: "flags_changed")
     if hasMarkedText() { return }
     let mods = ghosttyMods(event.modifierFlags)
     var action = GHOSTTY_ACTION_RELEASE
@@ -807,6 +811,7 @@ final class GhosttySurfaceView: NSView, Identifiable {
   }
 
   override func mouseMoved(with event: NSEvent) {
+    bridge.noteUserInteraction(reason: "mouse_moved")
     sendMousePosition(event)
     if let window, window.isKeyWindow, !focused, runtime.focusFollowsMouse() {
       requestFocus()
@@ -815,6 +820,7 @@ final class GhosttySurfaceView: NSView, Identifiable {
 
   override func mouseEntered(with event: NSEvent) {
     super.mouseEntered(with: event)
+    bridge.noteUserInteraction(reason: "mouse_entered")
     sendMousePosition(event)
   }
 
@@ -823,15 +829,18 @@ final class GhosttySurfaceView: NSView, Identifiable {
       return
     }
     guard let surface else { return }
+    bridge.noteUserInteraction(reason: "mouse_exited")
     let mods = ghosttyMods(event.modifierFlags)
     ghostty_surface_mouse_pos(surface, -1, -1, mods)
   }
 
   override func mouseDown(with event: NSEvent) {
+    bridge.noteUserInteraction(reason: "mouse_down")
     sendMouseButton(event, state: GHOSTTY_MOUSE_PRESS, button: GHOSTTY_MOUSE_LEFT)
   }
 
   override func mouseUp(with event: NSEvent) {
+    bridge.noteUserInteraction(reason: "mouse_up")
     prevPressureStage = 0
     sendMouseButton(event, state: GHOSTTY_MOUSE_RELEASE, button: GHOSTTY_MOUSE_LEFT)
     if let surface {
@@ -844,6 +853,7 @@ final class GhosttySurfaceView: NSView, Identifiable {
       super.rightMouseDown(with: event)
       return
     }
+    bridge.noteUserInteraction(reason: "right_mouse_down")
     let mods = ghosttyMods(event.modifierFlags)
     if ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_RIGHT, mods) {
       return
@@ -856,6 +866,7 @@ final class GhosttySurfaceView: NSView, Identifiable {
       super.rightMouseUp(with: event)
       return
     }
+    bridge.noteUserInteraction(reason: "right_mouse_up")
     let mods = ghosttyMods(event.modifierFlags)
     if ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_RIGHT, mods) {
       return
@@ -864,10 +875,12 @@ final class GhosttySurfaceView: NSView, Identifiable {
   }
 
   override func otherMouseDown(with event: NSEvent) {
+    bridge.noteUserInteraction(reason: "other_mouse_down")
     sendMouseButton(event, state: GHOSTTY_MOUSE_PRESS, button: Self.ghosttyMouseButton(from: event.buttonNumber))
   }
 
   override func otherMouseUp(with event: NSEvent) {
+    bridge.noteUserInteraction(reason: "other_mouse_up")
     sendMouseButton(event, state: GHOSTTY_MOUSE_RELEASE, button: Self.ghosttyMouseButton(from: event.buttonNumber))
   }
 
@@ -889,19 +902,23 @@ final class GhosttySurfaceView: NSView, Identifiable {
   }
 
   override func mouseDragged(with event: NSEvent) {
+    bridge.noteUserInteraction(reason: "mouse_dragged")
     sendMousePosition(event)
   }
 
   override func rightMouseDragged(with event: NSEvent) {
+    bridge.noteUserInteraction(reason: "right_mouse_dragged")
     sendMousePosition(event)
   }
 
   override func otherMouseDragged(with event: NSEvent) {
+    bridge.noteUserInteraction(reason: "other_mouse_dragged")
     sendMousePosition(event)
   }
 
   override func scrollWheel(with event: NSEvent) {
     guard let surface else { return }
+    bridge.noteUserInteraction(reason: "scroll_wheel")
     var scrollX = event.scrollingDeltaX
     var scrollY = event.scrollingDeltaY
     if event.hasPreciseScrollingDeltas {
@@ -913,6 +930,7 @@ final class GhosttySurfaceView: NSView, Identifiable {
 
   override func pressureChange(with event: NSEvent) {
     guard let surface else { return }
+    bridge.noteUserInteraction(reason: "pressure_change")
     ghostty_surface_mouse_pressure(surface, UInt32(event.stage), Double(event.pressure))
     guard prevPressureStage < 2 else { return }
     prevPressureStage = event.stage
@@ -1543,6 +1561,7 @@ final class GhosttySurfaceView: NSView, Identifiable {
       recordedBindingActions.append(action)
     #endif
     guard let surface else { return }
+    bridge.noteUserInteraction(reason: "binding_action")
     _ = action.withCString { ptr in
       ghostty_surface_binding_action(surface, ptr, UInt(action.lengthOfBytes(using: .utf8)))
     }
@@ -1913,6 +1932,7 @@ extension GhosttySurfaceView: NSTextInputClient {
     }
     let len = chars.utf8CString.count
     if len == 0 { return }
+    bridge.noteUserInteraction(reason: "text_input")
     chars.withCString { ptr in
       ghostty_surface_text(surface, ptr, UInt(len - 1))
     }
@@ -1959,6 +1979,7 @@ extension GhosttySurfaceView: NSServicesMenuRequestor {
     }
     let len = text.utf8CString.count
     guard len > 0 else { return }
+    bridge.noteUserInteraction(reason: "terminal_input")
     TerminalEnergyDiagnostics.shared.recordTerminalInput(bytes: text.lengthOfBytes(using: .utf8))
     text.withCString { ptr in
       ghostty_surface_text(surface, ptr, UInt(len - 1))
@@ -1969,6 +1990,7 @@ extension GhosttySurfaceView: NSServicesMenuRequestor {
     guard let str = pboard.getOpinionatedStringContents() else { return false }
     let len = str.utf8CString.count
     if len == 0 { return true }
+    bridge.noteUserInteraction(reason: "selection_input")
     str.withCString { ptr in
       ghostty_surface_text(surface, ptr, UInt(len - 1))
     }

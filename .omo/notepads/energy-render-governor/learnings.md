@@ -18,3 +18,8 @@
 - E2 adds a higher-precedence `hidden_presentation_suspend` / `suspend_state=hidden_minimized_or_occluded` path above the E1 background-unfocused cap; hidden progress reports remain live but governable progress applies are held until visible restore or an immediate bypass.
 - Surface visibility now combines Worktree tab/split/window visibility with direct AppKit window visibility (`isVisible`, `isMiniaturized`, occlusion state, hidden ancestor) before calling Ghostty core occlusion and bridge presentation suspension.
 - Final hidden smoke artifact: `/var/folders/db/wnztnt0d0zb87jdhxp6t_vc80000gn/T/supacode-energy-e2-hidden-smoke-final`; steady hidden intervals reported `committed_frame_proxies_per_s=0.99` baseline and `0.97` low-energy with `suspend_state=hidden_minimized_or_occluded`.
+
+## 2026-07-10 Task: E3 adaptive idle quiet governor
+- E3 adds a focused idle quiet state for bridge-level render proxy requests: `SUPACODE_ENERGY_MODE=1` enables `idle_quiet_threshold_ms=500` and `idle_quiet_frame_cap_ms=250`, while baseline keeps focused passthrough.
+- Unit coverage proves no quiet mode before the idle threshold, quiet coalescing after the threshold, immediate interaction exit/flush, and E2/E1 precedence over idle quiet.
+- Focused `spinner-status` runtime evidence entered `focused_idle_quiet_governor`, but the workload did not emit high-frequency Swift bridge render proxy requests; native Ghostty renderer wakeups bypass the current `appkit_proxy` counter path.

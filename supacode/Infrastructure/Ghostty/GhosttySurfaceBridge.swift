@@ -83,20 +83,33 @@ final class GhosttySurfaceBridge {
   private let progressThrottleInterval: Duration
   private let unfocusedFrameCapInterval: Duration
   private let unfocusedFrameCapMilliseconds: Int
+  private let idleQuietEnabled: Bool
+  private let idleQuietThreshold: Duration
+  private let idleQuietFrameCapInterval: Duration
+  private let idleQuietThresholdMilliseconds: Int
+  private let idleQuietFrameCapMilliseconds: Int?
   private let progressIdleInterval: Duration
   private let progressStaleTimeout: Duration
   private var pendingProgress: ProgressUpdate?
   private var appliedProgress: ProgressUpdate?
+  private var pendingRenderProxy = false
   private var progressReportCount = 0
   private var progressFlushTask: Task<Void, Never>?
   private var progressStaleTask: Task<Void, Never>?
+  private var renderProxyFlushTask: Task<Void, Never>?
+  private var idleQuietTask: Task<Void, Never>?
   private var focused = true
   private var presentationSuspendState = TerminalPresentationSuspendState.visible
+  private var idleQuietState = TerminalIdleQuietState.inactive
+  var onRenderProxyCommit: (() -> Void)?
+  var idleQuietStateForTesting: TerminalIdleQuietState { idleQuietState }
 
   init(
     clock: any Clock<Duration> = ContinuousClock(),
     progressThrottleInterval: Duration? = nil,
     unfocusedFrameCapInterval: Duration? = nil,
+    idleQuietThreshold: Duration? = nil,
+    idleQuietFrameCapInterval: Duration? = nil,
     progressIdleInterval: Duration = .seconds(1),
     progressStaleTimeout: Duration = .seconds(15)
   ) {
@@ -122,16 +135,46 @@ final class GhosttySurfaceBridge {
       self.unfocusedFrameCapInterval = .milliseconds(capMilliseconds)
       self.unfocusedFrameCapMilliseconds = capMilliseconds
     }
+    if let idleQuietThreshold {
+      self.idleQuietThreshold = idleQuietThreshold
+      self.idleQuietThresholdMilliseconds = Self.durationMilliseconds(idleQuietThreshold)
+    } else {
+      let thresholdMilliseconds = TerminalEnergyConfiguration.idleQuietThresholdMilliseconds()
+      self.idleQuietThreshold = .milliseconds(thresholdMilliseconds)
+      self.idleQuietThresholdMilliseconds = thresholdMilliseconds
+    }
+    if let idleQuietFrameCapInterval {
+      self.idleQuietFrameCapInterval = idleQuietFrameCapInterval
+      self.idleQuietFrameCapMilliseconds = Self.durationMilliseconds(idleQuietFrameCapInterval)
+      self.idleQuietEnabled = true
+    } else {
+      @Shared(.settingsFile) var settingsFile
+      let capMilliseconds = TerminalEnergyConfiguration.idleQuietFrameCapMilliseconds(
+        lowEnergyModeSetting: settingsFile.global.lowEnergyModeEnabled
+      )
+      self.idleQuietFrameCapMilliseconds = capMilliseconds
+      self.idleQuietFrameCapInterval = .milliseconds(capMilliseconds ?? 1)
+      self.idleQuietEnabled = capMilliseconds != nil
+    }
     TerminalEnergyDiagnostics.shared.recordConfiguredUnfocusedFrameCap(
       milliseconds: unfocusedFrameCapMilliseconds
     )
+    if let idleQuietFrameCapMilliseconds {
+      TerminalEnergyDiagnostics.shared.recordConfiguredIdleQuietGovernor(
+        thresholdMilliseconds: idleQuietThresholdMilliseconds,
+        capMilliseconds: idleQuietFrameCapMilliseconds
+      )
+    }
     TerminalEnergyDiagnostics.shared.recordRenderGovernorState(
       focused: focused,
       suspendState: presentationSuspendState,
-      capMilliseconds: unfocusedFrameCapMilliseconds
+      capMilliseconds: unfocusedFrameCapMilliseconds,
+      idleState: idleQuietState,
+      quietCapMilliseconds: idleQuietFrameCapMilliseconds
     )
     self.progressIdleInterval = progressIdleInterval
     self.progressStaleTimeout = progressStaleTimeout
+    restartIdleQuietTimerIfNeeded()
   }
 
   private static func resolvedProgressThrottleMilliseconds() -> Int {
@@ -144,6 +187,8 @@ final class GhosttySurfaceBridge {
   deinit {
     progressFlushTask?.cancel()
     progressStaleTask?.cancel()
+    renderProxyFlushTask?.cancel()
+    idleQuietTask?.cancel()
   }
 
   private struct ProgressUpdate: Equatable {
@@ -154,11 +199,12 @@ final class GhosttySurfaceBridge {
   func setFocused(_ focused: Bool) {
     guard self.focused != focused else { return }
     self.focused = focused
-    TerminalEnergyDiagnostics.shared.recordRenderGovernorState(
-      focused: focused,
-      suspendState: presentationSuspendState,
-      capMilliseconds: unfocusedFrameCapMilliseconds
-    )
+    if focused {
+      markInteractive(reason: "focus_regain", flushPending: false)
+    } else {
+      stopIdleQuietTimer(nextState: .inactive)
+    }
+    recordGovernorState()
     if focused && !presentationSuspendState.isSuspended {
       flushPendingRenderProxy(reason: "focus_regain")
     }
@@ -168,24 +214,34 @@ final class GhosttySurfaceBridge {
     let nextState: TerminalPresentationSuspendState = visible ? .visible : .hidden
     guard presentationSuspendState != nextState else { return }
     presentationSuspendState = nextState
-    TerminalEnergyDiagnostics.shared.recordRenderGovernorState(
-      focused: focused,
-      suspendState: presentationSuspendState,
-      capMilliseconds: unfocusedFrameCapMilliseconds
-    )
     if nextState.isSuspended {
       progressFlushTask?.cancel()
       progressFlushTask = nil
+      renderProxyFlushTask?.cancel()
+      renderProxyFlushTask = nil
+      stopIdleQuietTimer(nextState: .inactive)
     } else {
+      restartIdleQuietTimerIfNeeded()
       flushPendingRenderProxy(reason: "presentation_visible")
     }
+    recordGovernorState()
   }
 
   func flushPendingRenderProxy(reason: String) {
-    guard pendingProgress != nil else { return }
-    progressFlushTask?.cancel()
-    progressFlushTask = nil
-    applyPendingProgress(reason: reason)
+    if pendingProgress != nil {
+      progressFlushTask?.cancel()
+      progressFlushTask = nil
+      applyPendingProgress(reason: reason)
+    }
+    if pendingRenderProxy {
+      renderProxyFlushTask?.cancel()
+      renderProxyFlushTask = nil
+      applyPendingRenderProxy(reason: reason)
+    }
+  }
+
+  func noteUserInteraction(reason: String) {
+    markInteractive(reason: reason, flushPending: true)
   }
 
   func handleAction(target: ghostty_target_s, action: ghostty_action_s) -> Bool {
@@ -198,6 +254,7 @@ final class GhosttySurfaceBridge {
     if handleMouseAndLink(action) {
       return action.tag == GHOSTTY_ACTION_OPEN_URL
     }
+    if handleRender(action) { return true }
     if handleSearchAndScroll(action) { return false }
     if handleSizeAndKey(action) { return false }
     if handleConfigAndShell(action) { return false }
@@ -206,7 +263,7 @@ final class GhosttySurfaceBridge {
 
   func sendText(_ text: String) {
     guard let surface else { return }
-    flushPendingRenderProxy(reason: "terminal_input")
+    noteUserInteraction(reason: "terminal_input")
     TerminalEnergyDiagnostics.shared.recordTerminalInput(bytes: text.lengthOfBytes(using: .utf8))
     text.withCString { ptr in
       ghostty_surface_text(surface, ptr, UInt(text.lengthOfBytes(using: .utf8)))
@@ -501,7 +558,11 @@ final class GhosttySurfaceBridge {
   }
 
   private var currentRenderCadenceInterval: Duration {
-    focused ? progressThrottleInterval : unfocusedFrameCapInterval
+    if !focused { return unfocusedFrameCapInterval }
+    if idleQuietState == .idleQuiet, idleQuietFrameCapMilliseconds != nil {
+      return idleQuietFrameCapInterval
+    }
+    return progressThrottleInterval
   }
 
   private func applyPendingProgress(reason: String) {
@@ -513,6 +574,90 @@ final class GhosttySurfaceBridge {
     state.progressValue = pending.value
     TerminalEnergyDiagnostics.shared.recordProgressApply(state: Self.progressStateName(pending.state))
     onProgressReport?(pending.state)
+  }
+
+  private func handleRender(_ action: ghostty_action_s) -> Bool {
+    guard action.tag == GHOSTTY_ACTION_RENDER else { return false }
+    ingestRenderRequest(reason: "render")
+    return true
+  }
+
+  func ingestRenderRequest(reason: String) {
+    TerminalEnergyDiagnostics.shared.recordPresentationRequest(reason: reason)
+    if pendingRenderProxy {
+      TerminalEnergyDiagnostics.shared.recordCoalescedFrameProxy(reason: reason)
+    }
+    pendingRenderProxy = true
+    scheduleRenderProxyFlush()
+  }
+
+  private func scheduleRenderProxyFlush() {
+    guard !presentationSuspendState.isSuspended else { return }
+    guard renderProxyFlushTask == nil else { return }
+    applyPendingRenderProxy(reason: "render")
+    renderProxyFlushTask = Task { @MainActor [weak self] in
+      guard let self else { return }
+      try? await self.clock.sleep(for: self.currentRenderCadenceInterval)
+      guard !Task.isCancelled else { return }
+      self.renderProxyFlushTask = nil
+      guard self.pendingRenderProxy else { return }
+      self.scheduleRenderProxyFlush()
+    }
+  }
+
+  private func applyPendingRenderProxy(reason: String) {
+    guard pendingRenderProxy else { return }
+    pendingRenderProxy = false
+    TerminalEnergyDiagnostics.shared.recordCommittedFrameProxy(reason: reason)
+    onRenderProxyCommit?()
+  }
+
+  private func markInteractive(reason: String, flushPending: Bool) {
+    guard idleQuietEnabled else {
+      if flushPending {
+        flushPendingRenderProxy(reason: reason)
+      }
+      return
+    }
+    stopIdleQuietTimer(nextState: .interactive)
+    recordGovernorState()
+    if flushPending {
+      flushPendingRenderProxy(reason: reason)
+    }
+    restartIdleQuietTimerIfNeeded()
+  }
+
+  private func restartIdleQuietTimerIfNeeded() {
+    guard idleQuietEnabled, focused, !presentationSuspendState.isSuspended else { return }
+    idleQuietTask?.cancel()
+    if idleQuietState != .interactive {
+      idleQuietState = .interactive
+      recordGovernorState()
+    }
+    idleQuietTask = Task { @MainActor [weak self] in
+      guard let self else { return }
+      try? await self.clock.sleep(for: self.idleQuietThreshold)
+      guard !Task.isCancelled else { return }
+      self.idleQuietTask = nil
+      self.idleQuietState = .idleQuiet
+      self.recordGovernorState()
+    }
+  }
+
+  private func stopIdleQuietTimer(nextState: TerminalIdleQuietState) {
+    idleQuietTask?.cancel()
+    idleQuietTask = nil
+    idleQuietState = nextState
+  }
+
+  private func recordGovernorState() {
+    TerminalEnergyDiagnostics.shared.recordRenderGovernorState(
+      focused: focused,
+      suspendState: presentationSuspendState,
+      capMilliseconds: unfocusedFrameCapMilliseconds,
+      idleState: idleQuietState,
+      quietCapMilliseconds: idleQuietFrameCapMilliseconds
+    )
   }
 
   private func flushProgressRemoval() {
