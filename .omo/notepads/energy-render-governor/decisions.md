@@ -28,3 +28,17 @@
 - Do not replace the focused-visible gate with a weaker metadata-only state: focused governors require the launched app to actually become frontmost before sampling.
 - Do not implement the public `NSRunningApplication.activate` workaround yet because it returned `activate_ok=false` and left `loginwindow` frontmost in this environment.
 - Do not implement a `supacode open` workaround yet because the repo-local socket command routes through `surfaceMainWindow()` but still left `loginwindow` frontmost here.
+
+## 2026-07-10 Task: focused-visible retry after user request
+- Treat the fresh focused-visible artifacts as valid machine-readable benchmark evidence because CSV and JSONL row counts match expected rows per mode.
+- Do not mark the cumulative `75%` CPU goal as met: the valid full E7 mixed retry measured only `1.66%` CPU reduction.
+- Keep the `85.83%` progress-only result scoped to `appkit_proxy` frame proxies and not native Metal/Ghostty presents.
+
+## 2026-07-10 Task: immediate focused-visible retry
+- Treat `/var/folders/db/wnztnt0d0zb87jdhxp6t_vc80000gn/T/supacode-energy-focused-visible-immediate-retry-20260710065012` as valid progress-only machine-readable evidence because both `summary.csv` and `summary.jsonl` contain matching baseline and low-energy rows.
+- Keep the immediate retry result scoped to progress-only `appkit_proxy` evidence: `85.53%` proxy reduction does not imply native Metal/Ghostty present reduction or a `75%` CPU win.
+
+## 2026-07-10 Task: final safe-maximum disposition
+- Record E4, E5, and E7 as final safe-maximum wrapper-layer dispositions: E4 target unmet, E5 not meaningfully exercised, and E7 failed.
+- Do not pursue further wrapper-level cadence cuts because a `50%` direct E4 reduction from `10.9329/s` would require about `5.47/s`, below the permitted `10fps` focused Low Energy cap.
+- Do not weaken immediate interaction flush semantics to chase benchmark numbers; further improvement requires a native Ghostty/Metal renderer present hook outside wrapper scope.

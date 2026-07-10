@@ -59,3 +59,21 @@
 - Pending progress and render-proxy trailing flush tasks now cancel/re-arm when focus drops or idle quiet starts, so older focused deadlines cannot commit pending work before the stricter unfocused or idle-quiet cadence.
 - Deterministic TestClock coverage proves progress and render-proxy pending work stays at the old applied value/count through the prior faster deadline, then commits the latest pending state at the new cadence.
 - Focused GhosttySurfaceBridge suite passed with `72` tests via pinned `DEVELOPER_DIR` Xcode path; `scripts/test-energy-benchmark.sh` passed non-GUI syntax/workload/dry-run checks.
+
+## 2026-07-10 Task: focused-visible retry after user request
+- Fresh progress-only focused-visible artifact `/var/folders/db/wnztnt0d0zb87jdhxp6t_vc80000gn/T/supacode-energy-e4-e7-focused-progress-retry-20260710063645` has complete machine-readable rows: `summary.csv` has `2` data rows and `summary.jsonl` has `2` rows, one `baseline` and one `low-energy` in each file.
+- Focused-visible activation succeeded for the progress-only retry: the harness passed `activate_started_app` for both modes, run PIDs were `89986` and `1580`, and the observable post-run frontmost app was `pid=50602 bundle=app.supabit.supacode name=supacode`.
+- Progress-only focused-visible result: baseline CPU `18.9667`, Low Energy CPU `19.0458`, CPU reduction `-0.42%`; mean `appkit_proxy` frame reduction vs requests `85.83%`, passing the `50%` appkit-proxy target while still not proving native Metal/Ghostty presents.
+- Full E7 mixed focused-visible artifact `/var/folders/db/wnztnt0d0zb87jdhxp6t_vc80000gn/T/supacode-energy-e7-cumulative-focused-visible-retry-20260710063838` has complete machine-readable rows: `summary.csv` has `6` data rows and `summary.jsonl` has `6` rows, three `baseline` and three `low-energy` in each file.
+- Full E7 mixed result: baseline CPU `21.2625`, Low Energy CPU `20.9089`, CPU reduction `1.66%`; mean `appkit_proxy` frame reduction vs requests `46.85%`, failing both the `75%` CPU target and the mixed `70%` appkit-proxy target.
+
+## 2026-07-10 Task: immediate focused-visible retry
+- Fresh immediate progress-only focused-visible artifact `/var/folders/db/wnztnt0d0zb87jdhxp6t_vc80000gn/T/supacode-energy-focused-visible-immediate-retry-20260710065012` has complete machine-readable rows: `summary.csv` has `2` data rows and `summary.jsonl` has `2` rows, one `baseline` and one `low-energy` in each file.
+- Focused-visible activation succeeded for the immediate retry: the harness passed `activate_started_app` for both modes, run PIDs were `59623` and `68150`, and the observable post-run frontmost app was `pid=50602 bundle=app.supabit.supacode name=supacode`.
+- Immediate progress-only result: baseline CPU `18.7667`, Low Energy CPU `18.9708`, CPU reduction `-1.09%`; mean `appkit_proxy` frame reduction vs requests `85.53%`, passing the `50%` progress-only appkit-proxy target while still not proving native Metal/Ghostty presents.
+
+## 2026-07-10 Task: final safe-maximum disposition
+- Direct E4 artifact `/var/folders/db/wnztnt0d0zb87jdhxp6t_vc80000gn/T/supacode-energy-e4-focused-visible-direct-20260710085455` is valid focused-visible evidence: CPU reduction `-6.87%`, direct committed `appkit_proxy` reduction `10.47%`, baseline committed proxy rate `10.9329/s`, Low Energy committed proxy rate `9.7884/s`.
+- The direct E4 comparison is Low Energy vs baseline committed proxy rate, while E7's `46.85%` number is proxy-vs-request reduction inside the mixed run; neither is a native Metal or Ghostty present count.
+- Valid E7 artifact `/var/folders/db/wnztnt0d0zb87jdhxp6t_vc80000gn/T/supacode-energy-e7-cumulative-focused-visible-retry-20260710063838` remains failed at the safe maximum: CPU reduction `1.66%` and mixed proxy-vs-request reduction `46.85%`.
+- Commits `046430ee` and `728b7427` are part of the final evidence chain for direct benchmark deltas and cadence retiming.

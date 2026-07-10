@@ -43,3 +43,17 @@
 - No tested non-System-Events mechanism can currently make the launched app frontmost in this session: `NSRunningApplication.activate` returned `false`, and app-owned `surfaceMainWindow()` via `supacode open` did not change the frontmost application.
 - The current frontmost application during probes was `com.apple.loginwindow`, which means this session lacks an interactive foreground GUI context even when the debug app process and socket exist.
 - The safe conclusion remains an external focused-visible automation blocker; clearing E4/E5/E6/E7 requires a user environment with an interactive GUI session or authorized automation that can actually make the benchmark app frontmost.
+
+## 2026-07-10 Task: focused-visible retry after user request
+- Focused-visible activation is no longer the current blocker in this retry: both progress-only and full mixed E7 runs completed with matching CSV/JSONL rows.
+- The fresh progress-only retry does not prove the `75%` CPU goal because Low Energy CPU was slightly higher than baseline (`-0.42%` reduction), even though `appkit_proxy` frame reduction was `85.83%`.
+- The fresh full E7 mixed retry remains below targets: CPU reduction was `1.66%` and mean `appkit_proxy` frame reduction was `46.85%`, so the cumulative `75%` CPU target remains failed rather than merely blocked.
+
+## 2026-07-10 Task: immediate focused-visible retry
+- The immediate progress-only focused-visible retry completed, so frontmost activation was not the blocker for this attempt.
+- The immediate retry still does not prove the `75%` CPU goal because Low Energy CPU was higher than baseline (`-1.09%` CPU reduction), even though `appkit_proxy` frame reduction was `85.53%`.
+
+## 2026-07-10 Task: final safe-maximum disposition
+- E4 is no longer blocked by focused-visible activation, but the valid direct comparison fails: CPU reduction `-6.87%` and direct committed `appkit_proxy` reduction `10.47%`, below the `50%` target.
+- E5 is not meaningfully exercised because the default focused cap is about `30fps`, while the observed baseline committed proxy rate is only `10.9329/s`.
+- E7 safe maximum failed on valid evidence: CPU reduction `1.66%` against the `75%` goal, and mixed proxy-vs-request reduction `46.85%` against the mixed `70%` proxy target.
