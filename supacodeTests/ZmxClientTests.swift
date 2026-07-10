@@ -34,6 +34,20 @@ struct ZmxSessionIDTests {
 
 @MainActor
 struct ZmxAttachTests {
+  @Test func clearInheritedSessionEnvironmentPreventsNestedAttachSwitching() {
+    var env = [
+      "ZMX_SESSION": "supa-parent",
+      "ZMX_SESSION_PREFIX": "parent.",
+      "PATH": "/usr/bin",
+    ]
+
+    ZmxAttach.clearInheritedSessionEnvironment(in: &env)
+
+    #expect(env["ZMX_SESSION"] == "")
+    #expect(env["ZMX_SESSION_PREFIX"] == "")
+    #expect(env["PATH"] == "/usr/bin")
+  }
+
   @Test func buildCommandWithoutUserCommandUsesAttachOnly() {
     let cmd = ZmxAttach.buildCommand(
       executablePath: "/path/to/zmx",

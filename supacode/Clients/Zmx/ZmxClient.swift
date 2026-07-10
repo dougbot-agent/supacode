@@ -368,6 +368,11 @@ nonisolated enum ZmxSocketBudget {
 }
 
 nonisolated enum ZmxAttach {
+  static func clearInheritedSessionEnvironment(in env: inout [String: String]) {
+    env["ZMX_SESSION"] = ""
+    env["ZMX_SESSION_PREFIX"] = ""
+  }
+
   /// Ghostty wraps `config.command` as `/bin/sh -c "<value>"` on macOS (verified
   /// against `ThirdParty/ghostty/src/termio/Exec.zig` + `config/command.zig`), so
   /// POSIX single-quote escaping is correct. Don't change this without
