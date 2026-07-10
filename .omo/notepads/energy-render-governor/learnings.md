@@ -13,3 +13,8 @@
 - E1 keeps E0 `appkit_proxy` naming and reports active cap diagnostics as `governor_state=background_unfocused_cap cap_state=active cap_fps=4.00` while the app/window is unfocused or backgrounded.
 - Final smoke artifact: `/var/folders/db/wnztnt0d0zb87jdhxp6t_vc80000gn/T/supacode-energy-e1-background-progress-smoke-final`; `progress-only` background-unfocused averaged `80.97%` committed-frame proxy reduction vs presentation requests.
 - App/window active-key notifications now feed the same surface focus path because activating another app does not always make AppKit call `resignFirstResponder()` on the terminal surface.
+
+## 2026-07-10 Task: E2 hidden/minimized suspend
+- E2 adds a higher-precedence `hidden_presentation_suspend` / `suspend_state=hidden_minimized_or_occluded` path above the E1 background-unfocused cap; hidden progress reports remain live but governable progress applies are held until visible restore or an immediate bypass.
+- Surface visibility now combines Worktree tab/split/window visibility with direct AppKit window visibility (`isVisible`, `isMiniaturized`, occlusion state, hidden ancestor) before calling Ghostty core occlusion and bridge presentation suspension.
+- Final hidden smoke artifact: `/var/folders/db/wnztnt0d0zb87jdhxp6t_vc80000gn/T/supacode-energy-e2-hidden-smoke-final`; steady hidden intervals reported `committed_frame_proxies_per_s=0.99` baseline and `0.97` low-energy with `suspend_state=hidden_minimized_or_occluded`.

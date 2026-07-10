@@ -94,6 +94,11 @@ background_dry_run_log="${TMPDIR:-/tmp}/supacode-energy-benchmark-background-dry
 assert_contains "${background_dry_run_log}" "state: background-unfocused"
 assert_contains "${background_dry_run_log}" "benchmark state action: apply background-unfocused before sampling"
 
+hidden_dry_run_log="${TMPDIR:-/tmp}/supacode-energy-benchmark-hidden-dry-run.log"
+"${benchmark_script}" --dry-run --repeat 1 --duration 2 --warmup 1 --powermetrics off --workload progress-only --state occluded-hidden --output-dir "${TMPDIR:-/tmp}/supacode-energy-hidden-dry-run" >"${hidden_dry_run_log}"
+assert_contains "${hidden_dry_run_log}" "state: occluded-hidden"
+assert_contains "${hidden_dry_run_log}" "benchmark state action: apply occluded-hidden before sampling"
+
 unsupported_benchmark_log="${TMPDIR:-/tmp}/supacode-energy-benchmark-unsupported-test.log"
 if "${benchmark_script}" --dry-run --workload nope >"${unsupported_benchmark_log}" 2>&1; then
   fail "unsupported benchmark workload succeeded"

@@ -536,6 +536,35 @@ struct GhosttySurfaceBridgeTests {
     #expect(line.contains("cap_fps=4.00"))
   }
 
+  @Test func energyDiagnosticsSummaryReportsHiddenSuspendState() {
+    let line = TerminalEnergyDiagnostics.summaryLine(
+      seconds: 1,
+      actions: 0,
+      presentationRequests: 20,
+      committedFrameProxies: 0,
+      coalescedFrameProxies: 20,
+      progressReports: 20,
+      progressApplies: 0,
+      progressRemovals: 0,
+      terminalInputBytes: 0,
+      scrollCommits: 0,
+      sizeUpdates: 0,
+      layoutPasses: 0,
+      workloadName: "progress-only",
+      workloadState: "occluded-hidden",
+      focusState: "unfocused",
+      occlusionState: "occluded",
+      governorState: "hidden_presentation_suspend",
+      capState: "suspended",
+      capFPS: "0.00",
+      suspendState: TerminalPresentationSuspendState.hidden.rawValue
+    )
+
+    #expect(line.contains("governor_state=hidden_presentation_suspend"))
+    #expect(line.contains("cap_state=suspended"))
+    #expect(line.contains("suspend_state=hidden_minimized_or_occluded"))
+  }
+
   @Test func unfocusedProgressBurstCapsCommittedFrameProxies() async {
     let clock = TestClock()
     let rawRequests = 100
@@ -564,6 +593,125 @@ struct GhosttySurfaceBridgeTests {
     )
     let reduction = Double(rawRequests - committedFrameProxies) / Double(rawRequests)
     #expect(reduction >= 0.70)
+  }
+
+  @Test func hiddenProgressBurstSuppressesCommittedFrameProxies() async {
+    let clock = TestClock()
+    let bridge = GhosttySurfaceBridge(
+      clock: clock,
+      progressThrottleInterval: .milliseconds(50),
+      unfocusedFrameCapInterval: .milliseconds(250),
+      progressIdleInterval: .seconds(60),
+      progressStaleTimeout: .seconds(600)
+    )
+    var committedFrameProxies = 0
+    bridge.onProgressReport = { state in
+      if state != GHOSTTY_PROGRESS_STATE_REMOVE { committedFrameProxies += 1 }
+    }
+    bridge.setFocused(false)
+    bridge.setPresentationVisible(false)
+
+    for value in 0..<100 {
+      bridge.ingestProgressReport(state: GHOSTTY_PROGRESS_STATE_SET, value: value % 101)
+      await clock.advance(by: .milliseconds(20))
+    }
+
+    #expect(committedFrameProxies == 0)
+    #expect(bridge.state.progressState == nil)
+    #expect(bridge.state.progressValue == nil)
+  }
+
+  @Test func hiddenStateOutranksUnfocusedFrameCap() async {
+    let clock = TestClock()
+    let bridge = GhosttySurfaceBridge(
+      clock: clock,
+      progressThrottleInterval: .milliseconds(50),
+      unfocusedFrameCapInterval: .milliseconds(250),
+      progressIdleInterval: .seconds(60),
+      progressStaleTimeout: .seconds(600)
+    )
+    var committedFrameProxies = 0
+    bridge.onProgressReport = { state in
+      if state != GHOSTTY_PROGRESS_STATE_REMOVE { committedFrameProxies += 1 }
+    }
+    bridge.setFocused(false)
+    bridge.setPresentationVisible(false)
+
+    bridge.ingestProgressReport(state: GHOSTTY_PROGRESS_STATE_SET, value: 10)
+    await clock.advance(by: .seconds(2))
+
+    #expect(committedFrameProxies == 0)
+    #expect(bridge.state.progressValue == nil)
+  }
+
+  @Test func presentationRestoreFlushesLatestPendingProgressPromptly() {
+    let bridge = GhosttySurfaceBridge(
+      clock: TestClock(),
+      progressThrottleInterval: .milliseconds(50),
+      unfocusedFrameCapInterval: .seconds(1),
+      progressStaleTimeout: .seconds(600)
+    )
+    var appliedValues: [Int?] = []
+    bridge.onProgressReport = { state in
+      if state != GHOSTTY_PROGRESS_STATE_REMOVE { appliedValues.append(bridge.state.progressValue) }
+    }
+    bridge.setPresentationVisible(false)
+
+    bridge.ingestProgressReport(state: GHOSTTY_PROGRESS_STATE_SET, value: 10)
+    bridge.ingestProgressReport(state: GHOSTTY_PROGRESS_STATE_SET, value: 20)
+    bridge.ingestProgressReport(state: GHOSTTY_PROGRESS_STATE_SET, value: 30)
+    #expect(appliedValues == [])
+
+    bridge.setPresentationVisible(true)
+    #expect(bridge.state.progressValue == 30)
+    #expect(appliedValues == [30])
+  }
+
+  @Test func removalBypassesHiddenSuspend() {
+    let bridge = GhosttySurfaceBridge(
+      clock: TestClock(),
+      progressThrottleInterval: .milliseconds(50),
+      progressStaleTimeout: .seconds(600)
+    )
+    var states: [ghostty_action_progress_report_state_e] = []
+    bridge.onProgressReport = { states.append($0) }
+    bridge.setPresentationVisible(false)
+
+    bridge.ingestProgressReport(state: GHOSTTY_PROGRESS_STATE_SET, value: 40)
+    bridge.ingestProgressReport(state: GHOSTTY_PROGRESS_STATE_REMOVE, value: nil)
+
+    #expect(bridge.state.progressState == nil)
+    #expect(bridge.state.progressValue == nil)
+    #expect(states == [GHOSTTY_PROGRESS_STATE_REMOVE])
+  }
+
+  @Test func commandFinishedBypassesHiddenSuspend() {
+    let bridge = GhosttySurfaceBridge(
+      clock: TestClock(),
+      progressThrottleInterval: .milliseconds(50),
+      progressStaleTimeout: .seconds(600)
+    )
+    let target = ghostty_target_s()
+    var appliedValues: [Int?] = []
+    var receivedExitCode: Int?
+    bridge.onProgressReport = { state in
+      if state != GHOSTTY_PROGRESS_STATE_REMOVE { appliedValues.append(bridge.state.progressValue) }
+    }
+    bridge.onCommandFinished = { receivedExitCode = $0 }
+    bridge.setPresentationVisible(false)
+
+    bridge.ingestProgressReport(state: GHOSTTY_PROGRESS_STATE_SET, value: 10)
+    bridge.ingestProgressReport(state: GHOSTTY_PROGRESS_STATE_SET, value: 90)
+
+    var action = ghostty_action_s()
+    action.tag = GHOSTTY_ACTION_COMMAND_FINISHED
+    action.action.command_finished = ghostty_action_command_finished_s(exit_code: 7, duration: 123)
+    _ = bridge.handleAction(target: target, action: action)
+
+    #expect(bridge.state.commandExitCode == 7)
+    #expect(receivedExitCode == 7)
+    #expect(bridge.state.progressValue == 90)
+    #expect(appliedValues == [90])
   }
 
   @Test func focusRegainFlushesLatestPendingProgressPromptly() async {

@@ -34,6 +34,7 @@ final class TerminalEnergyDiagnostics {
   private var governorState = "none"
   private var capState = "none"
   private var capFPS = "0.00"
+  private var suspendState = TerminalPresentationSuspendState.visible.rawValue
 
   private init(
     enabled: Bool = TerminalEnergyConfiguration.renderStatsEnabled(),
@@ -77,8 +78,19 @@ final class TerminalEnergyDiagnostics {
     focusState = focused ? "focused" : "unfocused"
   }
 
-  func recordRenderGovernorState(focused: Bool, capMilliseconds: Int) {
+  func recordRenderGovernorState(
+    focused: Bool,
+    suspendState: TerminalPresentationSuspendState = .visible,
+    capMilliseconds: Int
+  ) {
     guard enabled else { return }
+    self.suspendState = suspendState.rawValue
+    guard !suspendState.isSuspended else {
+      governorState = "hidden_presentation_suspend"
+      capState = "suspended"
+      capFPS = "0.00"
+      return
+    }
     guard !focused else {
       governorState = "focused_passthrough"
       capState = "none"
@@ -188,7 +200,8 @@ final class TerminalEnergyDiagnostics {
       occlusionState: occlusionState,
       governorState: governorState,
       capState: capState,
-      capFPS: capFPS
+      capFPS: capFPS,
+      suspendState: suspendState
     ))
   }
 
@@ -237,10 +250,11 @@ final class TerminalEnergyDiagnostics {
     occlusionState: String,
     governorState: String = "none",
     capState: String = "none",
-    capFPS: String = "0.00"
+    capFPS: String = "0.00",
+    suspendState: String = TerminalPresentationSuspendState.visible.rawValue
   ) -> String {
     let safeSeconds = max(0.001, seconds)
-    return "render_stats: interval_s=\(format(safeSeconds)) workload=\(workloadName) state=\(workloadState) render_counter_source=appkit_proxy governor_state=\(governorState) cap_state=\(capState) cap_fps=\(capFPS) suspend_state=none focus_state=\(focusState) occlusion_state=\(occlusionState) idle_state=unknown presentation_requests_per_s=\(rate(presentationRequests, seconds: safeSeconds)) committed_frame_proxies_per_s=\(rate(committedFrameProxies, seconds: safeSeconds)) coalesced_frame_proxies_per_s=\(rate(coalescedFrameProxies, seconds: safeSeconds)) actions_per_s=\(rate(actions, seconds: safeSeconds)) progress_reports_per_s=\(rate(progressReports, seconds: safeSeconds)) progress_applies_per_s=\(rate(progressApplies, seconds: safeSeconds)) progress_removals=\(progressRemovals) terminal_input_bytes_per_s=\(rate(terminalInputBytes, seconds: safeSeconds)) scroll_commits_per_s=\(rate(scrollCommits, seconds: safeSeconds)) size_updates_per_s=\(rate(sizeUpdates, seconds: safeSeconds)) layout_passes_per_s=\(rate(layoutPasses, seconds: safeSeconds))"
+    return "render_stats: interval_s=\(format(safeSeconds)) workload=\(workloadName) state=\(workloadState) render_counter_source=appkit_proxy governor_state=\(governorState) cap_state=\(capState) cap_fps=\(capFPS) suspend_state=\(suspendState) focus_state=\(focusState) occlusion_state=\(occlusionState) idle_state=unknown presentation_requests_per_s=\(rate(presentationRequests, seconds: safeSeconds)) committed_frame_proxies_per_s=\(rate(committedFrameProxies, seconds: safeSeconds)) coalesced_frame_proxies_per_s=\(rate(coalescedFrameProxies, seconds: safeSeconds)) actions_per_s=\(rate(actions, seconds: safeSeconds)) progress_reports_per_s=\(rate(progressReports, seconds: safeSeconds)) progress_applies_per_s=\(rate(progressApplies, seconds: safeSeconds)) progress_removals=\(progressRemovals) terminal_input_bytes_per_s=\(rate(terminalInputBytes, seconds: safeSeconds)) scroll_commits_per_s=\(rate(scrollCommits, seconds: safeSeconds)) size_updates_per_s=\(rate(sizeUpdates, seconds: safeSeconds)) layout_passes_per_s=\(rate(layoutPasses, seconds: safeSeconds))"
   }
 
   private static func format(_ value: Double) -> String {

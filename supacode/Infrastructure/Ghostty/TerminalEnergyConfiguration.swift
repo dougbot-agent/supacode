@@ -74,3 +74,12 @@ nonisolated enum TerminalEnergyConfiguration {
     return value
   }
 }
+
+nonisolated enum TerminalPresentationSuspendState: String, Equatable {
+  case visible = "none"
+  case hidden = "hidden_minimized_or_occluded"
+
+  var isSuspended: Bool {
+    self != .visible
+  }
+}

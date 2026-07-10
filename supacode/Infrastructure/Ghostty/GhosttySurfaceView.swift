@@ -288,6 +288,9 @@ final class GhosttySurfaceView: NSView, Identifiable {
       bridge.surface = nil
       lastOcclusion = nil
       lastSurfaceFocus = nil
+      surfaceTreePresentationVisible = false
+      windowPresentationVisible = false
+      bridge.setPresentationVisible(false)
     }
   }
 
@@ -313,6 +316,27 @@ final class GhosttySurfaceView: NSView, Identifiable {
       ) { [weak self] _ in
         Task { @MainActor [weak self] in
           self?.applyWindowBackgroundAppearance()
+          self?.refreshPresentationStateFromAppKit()
+        }
+      })
+    notificationObservers.append(
+      center.addObserver(
+        forName: NSWindow.didMiniaturizeNotification,
+        object: window,
+        queue: .main
+      ) { [weak self] _ in
+        Task { @MainActor [weak self] in
+          self?.refreshPresentationStateFromAppKit()
+        }
+      })
+    notificationObservers.append(
+      center.addObserver(
+        forName: NSWindow.didDeminiaturizeNotification,
+        object: window,
+        queue: .main
+      ) { [weak self] _ in
+        Task { @MainActor [weak self] in
+          self?.refreshPresentationStateFromAppKit()
         }
       })
     notificationObservers.append(
@@ -323,6 +347,7 @@ final class GhosttySurfaceView: NSView, Identifiable {
       ) { [weak self] _ in
         Task { @MainActor [weak self] in
           self?.applyWindowBackgroundAppearance()
+          self?.refreshPresentationStateFromAppKit()
         }
       })
     notificationObservers.append(
@@ -374,6 +399,7 @@ final class GhosttySurfaceView: NSView, Identifiable {
       ) { [weak self] _ in
         Task { @MainActor [weak self] in
           self?.applyWindowBackgroundAppearance()
+          self?.refreshPresentationStateFromAppKit()
         }
       })
     notificationObservers.append(
@@ -422,6 +448,8 @@ final class GhosttySurfaceView: NSView, Identifiable {
       pendingFocusClaim?.cancel()
       pendingFocusClaim = nil
       focusDidChange(false)
+      windowPresentationVisible = false
+      applyCombinedPresentationVisibility()
       // A removed surface can't post from layout(); without this the tint
       // backdrop keeps its rect punched out as a stale untinted hole.
       NotificationCenter.default.post(name: .ghosttySurfaceFrameDidChange, object: self)
@@ -457,6 +485,7 @@ final class GhosttySurfaceView: NSView, Identifiable {
     updateScreenObservers()
     updateContentScale()
     notifySizeChanged()
+    refreshPresentationStateFromAppKit()
     applyWindowBackgroundAppearance()
   }
 
@@ -513,6 +542,8 @@ final class GhosttySurfaceView: NSView, Identifiable {
   }
 
   private var lastAppliedWindowAppearance: WindowAppearanceState?
+  private var surfaceTreePresentationVisible = true
+  private var windowPresentationVisible = true
 
   private func applyWindowBackgroundAppearance() {
     guard let window else { return }
@@ -1091,6 +1122,26 @@ final class GhosttySurfaceView: NSView, Identifiable {
   }
 
   func setOcclusion(_ visible: Bool) {
+    surfaceTreePresentationVisible = visible
+    applyCombinedPresentationVisibility()
+  }
+
+  private func refreshPresentationStateFromAppKit() {
+    windowPresentationVisible = currentWindowPresentationVisible()
+    applyCombinedPresentationVisibility()
+  }
+
+  private func currentWindowPresentationVisible() -> Bool {
+    guard let window else { return false }
+    return !isHiddenOrHasHiddenAncestor
+      && window.isVisible
+      && !window.isMiniaturized
+      && window.occlusionState.contains(.visible)
+  }
+
+  private func applyCombinedPresentationVisibility() {
+    let visible = surfaceTreePresentationVisible && windowPresentationVisible
+    bridge.setPresentationVisible(visible)
     guard let surface else { return }
     if lastOcclusion == visible {
       return

@@ -269,6 +269,13 @@ workload_uses_progress_reports() {
   esac
 }
 
+benchmark_state_applies_before_workload() {
+  case "${workload_state}" in
+    occluded-hidden) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 normalize_list_lines() {
   awk '
     {
@@ -537,6 +544,21 @@ EOF
         printf 'state=background-unfocused limitation=unable_to_force_background_headlessly\n' >>"${state_log}"
       fi
       ;;
+    occluded-hidden)
+      printf 'state=occluded-hidden action=miniaturize_started_app_window\n' >>"${state_log}"
+      if ! osascript <<EOF >>"${state_log}" 2>&1
+tell application "System Events"
+  set appProcess to first process whose unix id is ${started_pid}
+  if (count of windows of appProcess) is 0 then error "launched Supacode process has no windows to miniaturize"
+  set value of attribute "AXMinimized" of window 1 of appProcess to true
+  delay 0.2
+  if value of attribute "AXMinimized" of window 1 of appProcess is not true then error "Supacode window did not report AXMinimized"
+end tell
+EOF
+      then
+        printf 'state=occluded-hidden limitation=unable_to_force_minimized_headlessly\n' >>"${state_log}"
+      fi
+      ;;
     *)
       printf 'state=%s action=metadata_only\n' "${workload_state}" >>"${state_log}"
       ;;
@@ -746,6 +768,9 @@ run_workload_tab() {
   wait_for "zmx session ${session_id}" session_exists
   wait_for "zmx attached client for ${session_id}" session_has_client
   sleep "${workload_shell_settle_seconds}"
+  if benchmark_state_applies_before_workload; then
+    apply_benchmark_state
+  fi
   note "Submitting workload to tab ${created_tab_id}"
   "${zmx_path}" run "${session_id}" "${workload_path}" --duration "${workload_duration}" --workload "${workload_name}" >>"${current_run_dir}/cli-dispatch.log" 2>&1 &
 }
@@ -883,7 +908,9 @@ for mode in ${modes}; do
       wait_for "render stats proof counters from workload" \
         render_stats_proof_seen "${current_run_dir}/render-stats.log" "${current_run_dir}/app.log"
     fi
-    apply_benchmark_state
+    if ! benchmark_state_applies_before_workload; then
+      apply_benchmark_state
+    fi
     start_top_collector "${started_pid}" "${current_run_dir}/top.log" "${current_run_dir}/cpu.csv"
     start_powermetrics_collector "${current_run_dir}/powermetrics.log"
     sleep "${duration_seconds}"

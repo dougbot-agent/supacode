@@ -91,6 +91,7 @@ final class GhosttySurfaceBridge {
   private var progressFlushTask: Task<Void, Never>?
   private var progressStaleTask: Task<Void, Never>?
   private var focused = true
+  private var presentationSuspendState = TerminalPresentationSuspendState.visible
 
   init(
     clock: any Clock<Duration> = ContinuousClock(),
@@ -126,6 +127,7 @@ final class GhosttySurfaceBridge {
     )
     TerminalEnergyDiagnostics.shared.recordRenderGovernorState(
       focused: focused,
+      suspendState: presentationSuspendState,
       capMilliseconds: unfocusedFrameCapMilliseconds
     )
     self.progressIdleInterval = progressIdleInterval
@@ -154,10 +156,28 @@ final class GhosttySurfaceBridge {
     self.focused = focused
     TerminalEnergyDiagnostics.shared.recordRenderGovernorState(
       focused: focused,
+      suspendState: presentationSuspendState,
       capMilliseconds: unfocusedFrameCapMilliseconds
     )
-    if focused {
+    if focused && !presentationSuspendState.isSuspended {
       flushPendingRenderProxy(reason: "focus_regain")
+    }
+  }
+
+  func setPresentationVisible(_ visible: Bool) {
+    let nextState: TerminalPresentationSuspendState = visible ? .visible : .hidden
+    guard presentationSuspendState != nextState else { return }
+    presentationSuspendState = nextState
+    TerminalEnergyDiagnostics.shared.recordRenderGovernorState(
+      focused: focused,
+      suspendState: presentationSuspendState,
+      capMilliseconds: unfocusedFrameCapMilliseconds
+    )
+    if nextState.isSuspended {
+      progressFlushTask?.cancel()
+      progressFlushTask = nil
+    } else {
+      flushPendingRenderProxy(reason: "presentation_visible")
     }
   }
 
@@ -438,6 +458,7 @@ final class GhosttySurfaceBridge {
   /// flush is in flight, then batch any further changes into one flush per
   /// throttle interval. Idles to nothing once the value stops moving.
   private func scheduleProgressFlush() {
+    guard !presentationSuspendState.isSuspended else { return }
     guard progressFlushTask == nil else { return }
     applyPendingProgress(reason: "osc9_progress")
     progressFlushTask = Task { @MainActor [weak self] in
