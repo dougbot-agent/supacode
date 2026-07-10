@@ -48,3 +48,9 @@
 - E7 required gates passed in order: `scripts/test-energy-benchmark.sh`, `make test` (`2251` tests, `11` known issues), and `make build-app`.
 - Fresh final focused-visible artifact `/var/folders/db/wnztnt0d0zb87jdhxp6t_vc80000gn/T/supacode-energy-e7-final-cumulative-focused-visible-20260710052926` preserves the machine-readable failure contract: `summary.csv` has only the header, `summary.jsonl` is empty, and `report.md` says `Status: failed` with unavailable CPU/proxy metrics.
 - Safe maximum cumulative evidence remains state-specific: E1 background progress-only `80.97%` appkit-proxy reduction, E2 hidden steady intervals near `0.99/0.97 fps`, and E3 spinner `0.00%` appkit-proxy reduction because native Ghostty wakeups bypass Swift proxy counters.
+
+## 2026-07-10 Task: focused-visible non-System-Events discovery
+- Existing repo-local `supacode open` is the only app-owned focus path found; it dispatches `supacode://` to `.open`, which calls `NSApplication.shared.surfaceMainWindow()` inside the app.
+- External public AppKit activation was tested with `NSRunningApplication(processIdentifier:).activate(options: [.activateAllWindows])`; the target debug app resolved as `bundle=app.supabit.supacode`, but activation returned `false` and `NSWorkspace.shared.frontmostApplication` remained `com.apple.loginwindow`.
+- Repo-local socket surfacing was tested with `SUPACODE_SOCKET_PATH=/tmp/supacode-501/pid-10350 supacode open --timeout 3`; it completed without CLI error, but `NSWorkspace.shared.frontmostApplication` still reported `frontmost_pid=178 bundle=com.apple.loginwindow` and the target app stayed inactive.
+- Fresh blocked artifact `/var/folders/db/wnztnt0d0zb87jdhxp6t_vc80000gn/T/supacode-energy-focused-visible-safe-discovery-20260710053840` again has header-only `summary.csv`, empty `summary.jsonl`, and failed `report.md` after timing out at `launched dev app window to become frontmost`.

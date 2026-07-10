@@ -23,3 +23,8 @@
 - Do not report the plan's `75%` mean CPU target as met: the cumulative focused-visible benchmark has no complete baseline/final CSV or JSONL rows, so the CPU goal remains unverified and unreached.
 - Preserve the final E7 focused-visible artifact as failed nonnumeric evidence rather than fabricating a comparison: `/var/folders/db/wnztnt0d0zb87jdhxp6t_vc80000gn/T/supacode-energy-e7-final-cumulative-focused-visible-20260710052926`.
 - Keep existing governor values unchanged for E7 because E4/E5/E6 focused-visible automation is blocked before measurement and further tuning would be speculative.
+
+## 2026-07-10 Task: focused-visible non-System-Events discovery
+- Do not replace the focused-visible gate with a weaker metadata-only state: focused governors require the launched app to actually become frontmost before sampling.
+- Do not implement the public `NSRunningApplication.activate` workaround yet because it returned `activate_ok=false` and left `loginwindow` frontmost in this environment.
+- Do not implement a `supacode open` workaround yet because the repo-local socket command routes through `surfaceMainWindow()` but still left `loginwindow` frontmost here.

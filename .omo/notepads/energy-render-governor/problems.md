@@ -38,3 +38,8 @@
 - The final E7 focused-visible run remained blocked before workload sampling at `timed out waiting for launched dev app window to become frontmost`; no baseline/low-energy rows were written.
 - The blocker is external to governor logic: System Events/AppKit automation cannot reliably make the launched development app frontmost in this environment, so focused-visible E4/E5/E6/E7 benchmark evidence must stay `[~]` until a GUI-capable run can sample both modes.
 - The wrapper command that launched the E7 attempt also hit zsh's read-only `status` variable while printing the exit code, but the benchmark artifact itself was already written and preserves the failed nonnumeric report contract.
+
+## 2026-07-10 Task: focused-visible non-System-Events discovery
+- No tested non-System-Events mechanism can currently make the launched app frontmost in this session: `NSRunningApplication.activate` returned `false`, and app-owned `surfaceMainWindow()` via `supacode open` did not change the frontmost application.
+- The current frontmost application during probes was `com.apple.loginwindow`, which means this session lacks an interactive foreground GUI context even when the debug app process and socket exist.
+- The safe conclusion remains an external focused-visible automation blocker; clearing E4/E5/E6/E7 requires a user environment with an interactive GUI session or authorized automation that can actually make the benchmark app frontmost.
