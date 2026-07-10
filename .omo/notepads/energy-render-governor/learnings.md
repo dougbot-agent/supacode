@@ -54,3 +54,8 @@
 - External public AppKit activation was tested with `NSRunningApplication(processIdentifier:).activate(options: [.activateAllWindows])`; the target debug app resolved as `bundle=app.supabit.supacode`, but activation returned `false` and `NSWorkspace.shared.frontmostApplication` remained `com.apple.loginwindow`.
 - Repo-local socket surfacing was tested with `SUPACODE_SOCKET_PATH=/tmp/supacode-501/pid-10350 supacode open --timeout 3`; it completed without CLI error, but `NSWorkspace.shared.frontmostApplication` still reported `frontmost_pid=178 bundle=com.apple.loginwindow` and the target app stayed inactive.
 - Fresh blocked artifact `/var/folders/db/wnztnt0d0zb87jdhxp6t_vc80000gn/T/supacode-energy-focused-visible-safe-discovery-20260710053840` again has header-only `summary.csv`, empty `summary.jsonl`, and failed `report.md` after timing out at `launched dev app window to become frontmost`.
+
+## 2026-07-10 Task: F2 cadence retiming fix
+- Pending progress and render-proxy trailing flush tasks now cancel/re-arm when focus drops or idle quiet starts, so older focused deadlines cannot commit pending work before the stricter unfocused or idle-quiet cadence.
+- Deterministic TestClock coverage proves progress and render-proxy pending work stays at the old applied value/count through the prior faster deadline, then commits the latest pending state at the new cadence.
+- Focused GhosttySurfaceBridge suite passed with `72` tests via pinned `DEVELOPER_DIR` Xcode path; `scripts/test-energy-benchmark.sh` passed non-GUI syntax/workload/dry-run checks.

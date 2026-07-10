@@ -231,6 +231,7 @@ final class GhosttySurfaceBridge {
     } else {
       stopIdleQuietTimer(nextState: .inactive)
     }
+    retimePendingFlushesForCurrentCadence()
     recordGovernorState()
     if focused && !presentationSuspendState.isSuspended {
       flushPendingRenderProxy(reason: "focus_regain")
@@ -546,6 +547,10 @@ final class GhosttySurfaceBridge {
     guard !presentationSuspendState.isSuspended else { return }
     guard progressFlushTask == nil else { return }
     applyPendingProgress(reason: "osc9_progress")
+    armProgressFlushTask()
+  }
+
+  private func armProgressFlushTask() {
     progressFlushTask = Task { @MainActor [weak self] in
       guard let self else { return }
       try? await self.clock.sleep(for: self.currentRenderCadenceInterval)
@@ -624,6 +629,10 @@ final class GhosttySurfaceBridge {
     guard !presentationSuspendState.isSuspended else { return }
     guard renderProxyFlushTask == nil else { return }
     applyPendingRenderProxy(reason: "render")
+    armRenderProxyFlushTask()
+  }
+
+  private func armRenderProxyFlushTask() {
     renderProxyFlushTask = Task { @MainActor [weak self] in
       guard let self else { return }
       try? await self.clock.sleep(for: self.currentRenderCadenceInterval)
@@ -669,7 +678,22 @@ final class GhosttySurfaceBridge {
       guard !Task.isCancelled else { return }
       self.idleQuietTask = nil
       self.idleQuietState = .idleQuiet
+      self.retimePendingFlushesForCurrentCadence()
       self.recordGovernorState()
+    }
+  }
+
+  private func retimePendingFlushesForCurrentCadence() {
+    guard !presentationSuspendState.isSuspended else { return }
+    if progressFlushTask != nil {
+      progressFlushTask?.cancel()
+      progressFlushTask = nil
+      armProgressFlushTask()
+    }
+    if renderProxyFlushTask != nil {
+      renderProxyFlushTask?.cancel()
+      renderProxyFlushTask = nil
+      armRenderProxyFlushTask()
     }
   }
 

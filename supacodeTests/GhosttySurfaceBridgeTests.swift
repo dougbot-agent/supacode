@@ -1279,6 +1279,106 @@ struct GhosttySurfaceBridgeTests {
     #expect(appliedValues == [10, 20])
   }
 
+  @Test func pendingProgressRetimesWhenFocusDropsMidFlight() async {
+    let clock = TestClock()
+    let bridge = GhosttySurfaceBridge(
+      clock: clock,
+      progressThrottleInterval: .milliseconds(50),
+      focusedFrameCapInterval: .milliseconds(50),
+      unfocusedFrameCapInterval: .seconds(1),
+      progressStaleTimeout: .seconds(600)
+    )
+    var appliedValues: [Int?] = []
+    bridge.onProgressReport = { state in
+      if state != GHOSTTY_PROGRESS_STATE_REMOVE { appliedValues.append(bridge.state.progressValue) }
+    }
+
+    bridge.ingestProgressReport(state: GHOSTTY_PROGRESS_STATE_SET, value: 10)
+    bridge.ingestProgressReport(state: GHOSTTY_PROGRESS_STATE_SET, value: 20)
+    bridge.setFocused(false)
+    await clock.advance(by: .milliseconds(50))
+    #expect(bridge.state.progressValue == 10)
+    #expect(appliedValues == [10])
+
+    await clock.advance(by: .milliseconds(950))
+    #expect(bridge.state.progressValue == 20)
+    #expect(appliedValues == [10, 20])
+  }
+
+  @Test func pendingRenderProxyRetimesWhenFocusDropsMidFlight() async {
+    let clock = TestClock()
+    let bridge = GhosttySurfaceBridge(
+      clock: clock,
+      progressThrottleInterval: .milliseconds(50),
+      focusedFrameCapInterval: .milliseconds(50),
+      unfocusedFrameCapInterval: .seconds(1),
+      progressStaleTimeout: .seconds(600)
+    )
+    var committedFrameProxies = 0
+    bridge.onRenderProxyCommit = { committedFrameProxies += 1 }
+
+    bridge.ingestRenderRequest(reason: "render")
+    bridge.ingestRenderRequest(reason: "render")
+    bridge.setFocused(false)
+    await clock.advance(by: .milliseconds(50))
+    #expect(committedFrameProxies == 1)
+
+    await clock.advance(by: .milliseconds(950))
+    #expect(committedFrameProxies == 2)
+  }
+
+  @Test func pendingProgressRetimesWhenIdleQuietStartsMidFlight() async {
+    let clock = TestClock()
+    let bridge = GhosttySurfaceBridge(
+      clock: clock,
+      progressThrottleInterval: .milliseconds(50),
+      focusedFrameCapInterval: .milliseconds(200),
+      idleQuietThreshold: .milliseconds(100),
+      idleQuietFrameCapInterval: .milliseconds(500),
+      progressStaleTimeout: .seconds(600)
+    )
+    var appliedValues: [Int?] = []
+    bridge.onProgressReport = { state in
+      if state != GHOSTTY_PROGRESS_STATE_REMOVE { appliedValues.append(bridge.state.progressValue) }
+    }
+
+    bridge.ingestProgressReport(state: GHOSTTY_PROGRESS_STATE_SET, value: 10)
+    bridge.ingestProgressReport(state: GHOSTTY_PROGRESS_STATE_SET, value: 20)
+    await clock.advance(by: .milliseconds(100))
+    #expect(bridge.idleQuietStateForTesting == .idleQuiet)
+    await clock.advance(by: .milliseconds(100))
+    #expect(bridge.state.progressValue == 10)
+    #expect(appliedValues == [10])
+
+    await clock.advance(by: .milliseconds(400))
+    #expect(bridge.state.progressValue == 20)
+    #expect(appliedValues == [10, 20])
+  }
+
+  @Test func pendingRenderProxyRetimesWhenIdleQuietStartsMidFlight() async {
+    let clock = TestClock()
+    let bridge = GhosttySurfaceBridge(
+      clock: clock,
+      progressThrottleInterval: .milliseconds(50),
+      focusedFrameCapInterval: .milliseconds(200),
+      idleQuietThreshold: .milliseconds(100),
+      idleQuietFrameCapInterval: .milliseconds(500),
+      progressStaleTimeout: .seconds(600)
+    )
+    var committedFrameProxies = 0
+    bridge.onRenderProxyCommit = { committedFrameProxies += 1 }
+
+    bridge.ingestRenderRequest(reason: "render")
+    bridge.ingestRenderRequest(reason: "render")
+    await clock.advance(by: .milliseconds(100))
+    #expect(bridge.idleQuietStateForTesting == .idleQuiet)
+    await clock.advance(by: .milliseconds(100))
+    #expect(committedFrameProxies == 1)
+
+    await clock.advance(by: .milliseconds(400))
+    #expect(committedFrameProxies == 2)
+  }
+
   @Test func interactionExitsQuietAndFlushesLatestRenderProxy() async {
     let clock = TestClock()
     let bridge = GhosttySurfaceBridge(
